@@ -46,7 +46,7 @@ GEMINI_MODEL = _os.getenv("GEMINI_MODEL",          "gemini-2.5-flash")
 
 MAX_RESULTS         = 50    # Vertex page_size — covers more docs per query
 MAX_SEGMENTS        = 40    # Default # of doc excerpts sent to Gemini synthesis
-MAX_SEGMENTS_LIST   = 200   # When user asks 'list all' — title-only context for many docs
+MAX_SEGMENTS_LIST   = 50   # When user asks 'list all' — title-only context for many docs
 MAX_HISTORY  = 8
 SESSION_TTL  = 3600
 CACHE_MINUTES = 15   # Reuse Vertex search results within this window per session
