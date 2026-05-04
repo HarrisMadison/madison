@@ -226,35 +226,55 @@ def _safe_struct_to_dict(struct):
 
 
 def _extract_snippets_from_doc(doc) -> str:
-    """Pull snippet text from derived_struct_data without triggering LLM quota."""
-    snippet_text = ""
+    """
+    Pull snippet text from derived_struct_data without triggering LLM quota.
+    Reads all three content fields Vertex may populate (snippets, extractive
+    segments, extractive answers) because different doc types put their text
+    under different fields. Short single-page invoices and .docx tables, for
+    example, only show up under extractive_segments.
+    """
+    parts = []
     try:
         if not hasattr(doc, "derived_struct_data") or doc.derived_struct_data is None:
             return ""
         derived = doc.derived_struct_data
         try:
-            derived_dict = dict(derived)
+            d = dict(derived)
         except Exception:
-            derived_dict = {}
+            d = {}
 
-        snippets = derived_dict.get("snippets", [])
-        if snippets:
-            parts = []
-            for s in snippets[:3]:
-                try:
-                    if isinstance(s, dict):
-                        text = s.get("snippet", "") or s.get("content", "")
-                    else:
-                        text = getattr(s, "snippet", "") or getattr(s, "content", "")
-                    if text:
-                        text = re.sub(r"<[^>]+>", "", str(text))
-                        parts.append(text.strip())
-                except Exception:
-                    continue
-            snippet_text = " ... ".join(parts)
-    except Exception:
-        pass
-    return snippet_text[:600]
+        # 1) snippets[] -- query-aware short excerpts (HTML-tagged)
+        for s in (d.get("snippets") or []):
+            try:
+                txt = s.get("snippet", "") if isinstance(s, dict) else getattr(s, "snippet", "")
+                if txt:
+                    parts.append(re.sub(r"<[^>]+>", "", str(txt)).strip())
+            except Exception:
+                continue
+
+        # 2) extractive_segments[] -- larger chunks (~2-3 paragraphs each)
+        for seg in (d.get("extractive_segments") or []):
+            try:
+                txt = seg.get("content", "") if isinstance(seg, dict) else getattr(seg, "content", "")
+                if txt:
+                    parts.append(str(txt).strip())
+            except Exception:
+                continue
+
+        # 3) extractive_answers[] -- pinpoint answers extracted from doc
+        for ans in (d.get("extractive_answers") or []):
+            try:
+                txt = ans.get("content", "") if isinstance(ans, dict) else getattr(ans, "content", "")
+                if txt:
+                    parts.append(str(txt).strip())
+            except Exception:
+                continue
+    except Exception as e:
+        print(f"[Vertex] snippet extract error: {e}")
+
+    snippet_text = "\n".join(parts).strip()
+    # 3000-char window per doc -- big enough for short invoices & contract pages
+    return snippet_text[:3000]
 
 
 # ── Core engine ─────────────────────────────────────────────────────────────
@@ -332,28 +352,53 @@ class JobIntelligence:
                 content_search_spec=discoveryengine.SearchRequest.ContentSearchSpec(
                     snippet_spec=discoveryengine.SearchRequest.ContentSearchSpec.SnippetSpec(
                         return_snippet=True,
-                        max_snippet_count=3,
+                        max_snippet_count=5,
                     ),
-                    # NOTE: NO summary_spec → does not invoke discoveryengine LLM
+                    # Ask for extractive segments + answers too. Different doc
+                    # types only return content under one of these. We read
+                    # whichever fields actually have text.
+                    extractive_content_spec=discoveryengine.SearchRequest.ContentSearchSpec.ExtractiveContentSpec(
+                        max_extractive_segment_count=3,
+                        max_extractive_answer_count=3,
+                    ),
+                    # Vertex's own LLM summarization. The DoorLoop pipeline
+                    # relied on this for the rich answer surface. NOTE: results
+                    # MUST be materialized via list(response) BEFORE reading
+                    # response.summary.summary_text, otherwise summary is empty.
+                    summary_spec=discoveryengine.SearchRequest.ContentSearchSpec.SummarySpec(
+                        summary_result_count=10,
+                        include_citations=True,
+                    ),
                 ),
             )
             if flt:
                 kw["filter"] = flt
             return discoveryengine.SearchRequest(**kw)
 
+        vertex_summary = ""
         try:
             response = self._search_client.search(
                 _make_req(search_query, 'NOT document_type: ANY("scanned_document")'))
+            # CRITICAL: materialize results BEFORE reading summary, otherwise
+            # response.summary.summary_text comes back as empty string.
             results = list(response)
             if not results:
                 response = self._search_client.search(_make_req(search_query))
                 results = list(response)
+            try:
+                vertex_summary = (response.summary.summary_text or "").strip()
+            except Exception:
+                vertex_summary = ""
         except Exception as e:
             err_msg = str(e)
             print(f"[Vertex] Search error: {err_msg[:200]}")
             try:
                 response = self._search_client.search(_make_req(search_query))
                 results = list(response)
+                try:
+                    vertex_summary = (response.summary.summary_text or "").strip()
+                except Exception:
+                    vertex_summary = ""
             except Exception as e2:
                 print(f"[Vertex] Retry error: {str(e2)[:200]}")
                 return [], [], {}
@@ -361,6 +406,14 @@ class JobIntelligence:
         excerpts = []
         media_links = []
         source_uris = {}
+
+        # Inject Vertex's own summary as a synthetic first excerpt so Gemini
+        # has cross-document context even when individual snippets are weak.
+        if vertex_summary:
+            excerpts.append({
+                "source":  "[Vertex Search summary]",
+                "content": vertex_summary,
+            })
 
         for result in results:
             doc = result.document
@@ -406,8 +459,15 @@ class JobIntelligence:
             source_label = source_uri.split("/")[-1] if source_uri else (title or doc.id or "Unknown")
             snippet_content = _extract_snippets_from_doc(doc)
 
+            # DIAGNOSTIC: log what we got per doc so we can see why answers fail.
+            # Remove this once root cause is understood.
+            print(f"[diag] doc='{source_label[:60]}' snippet_len={len(snippet_content)} preview={snippet_content[:120]!r}")
+
+            # If Vertex returned no extractable text, mark it explicitly so
+            # Gemini knows the doc was found but has no body content (rather
+            # than receiving the filename as if it were content).
             if not snippet_content:
-                snippet_content = title or source_label
+                snippet_content = "[No text content available for this document — likely scanned PDF or image-based content. Document exists but cannot be read without OCR.]"
 
             if source_label and source_label not in ("Unknown", ""):
                 excerpts.append({
@@ -504,11 +564,14 @@ class JobIntelligence:
         else:
             context_block = "(No relevant documents retrieved for this query.)"
 
-        history = []
+        history_block = ""
         if session and session.history:
             recent = session.history[-(MAX_HISTORY * 2):]
             for msg in recent:
-                history.append({"role": msg.role, "parts": [msg.text]})
+                speaker = "User" if msg.role == "user" else "Assistant"
+                history_block += f"{speaker}: {msg.text}\n"
+        if not history_block:
+            history_block = "(no prior conversation)"
 
         job_hint = (
             f"\n[Current job in focus: {session.job_context}]"
@@ -523,6 +586,7 @@ class JobIntelligence:
                     media_hint += f"\n[PHOTO_CARD_PRESENT: {cnt} photos available for {name}]"
 
         prompt = (
+            f"Conversation so far:\n{history_block}\n"
             f"DOCUMENT EXCERPTS:\n{context_block}\n\n"
             f"{'─' * 40}{job_hint}\n"
             f"{media_hint}\n\n"
@@ -530,15 +594,24 @@ class JobIntelligence:
         )
 
         try:
-            chat = self._gemini.start_chat(history=history)
-            response = chat.send_message(prompt)
-            return response.text
+            # Use generate_content instead of start_chat(history=...). The chat-history
+            # API is strict about message ordering and frequently 400s; inlining
+            # is bulletproof and works with every Gemini model version.
+            resp = self._gemini.generate_content(prompt)
+            answer = (resp.text or "").strip()
+            if not answer:
+                if excerpts:
+                    doc_list = ", ".join(e["source"] for e in excerpts[:5])
+                    return f"Found {len(excerpts)} relevant document(s): {doc_list}. Gemini returned an empty response."
+                return "No documents found and Gemini returned an empty response."
+            return answer
         except Exception as e:
-            print(f"[Gemini] Synthesis error: {e}")
+            err_str = str(e)
+            print(f"[Gemini] Synthesis error: {err_str}")
             if excerpts:
                 doc_list = ", ".join(e["source"] for e in excerpts[:5])
-                return (f"I found {len(excerpts)} relevant document(s): {doc_list}. "
-                        "Gemini hit an error generating the full answer — please try again.")
+                return (f"Found {len(excerpts)} relevant document(s): {doc_list}. "
+                        f"Gemini error during synthesis: {err_str[:300]}")
             return ("I couldn't find relevant documents for that question. "
                     "Try a more specific query (address, permit number, or document name).")
 

@@ -7,3 +7,8 @@ google-cloud-storage>=2.10.0
 google-generativeai>=0.8.0
 pdfplumber>=0.11.0
 python-dotenv>=1.0.0
+# Pre-extraction parsers (Phase 5/6) -- pulls text from common Office formats
+# so Vertex receives clean rawBytes instead of relying on its own parser.
+python-docx>=1.1.0
+openpyxl>=3.1.0
+python-pptx>=0.6.23

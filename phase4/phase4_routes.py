@@ -19,7 +19,7 @@ NEW ENDPOINTS:
   POST /api/chat              → send a message, returns IntelligenceResponse
   GET  /api/chat/<session_id> → get session history
   DELETE /api/chat/<session_id> → clear session history
-  GET  /bob                   → serve the Bob chat UI
+  GET  /chat                  → serve the chat UI
 
 REQUIRED ENV:
   GEMINI_API_KEY  (or service-account.json for Vertex-hosted Gemini)
@@ -142,12 +142,13 @@ def clear_session(session_id: str):
     return jsonify({"status": "cleared", "session_id": session_id})
 
 
-# ── GET /bob ───────────────────────────────────────────────────────────────
-@phase4_bp.route("/bob")
-def bob_dashboard():
+# ── GET /chat (canonical) and /bob (legacy alias) ─────────────────────────────
+@phase4_bp.route("/chat")
+@phase4_bp.route("/bob")  # legacy alias — keeps existing bookmarks working
+def chat_dashboard():
     """
-    Serve the Bob command-center chat UI.
-    Looks for bob_chat.html in Flask's templates folder.
+    Serve the chat UI.
+    Looks for the chat template in Flask's templates folder.
     """
     try:
         import os as _os
@@ -177,7 +178,7 @@ def bob_dashboard():
             with open(html_path, "r", encoding="utf-8") as f:
                 return f.read(), 200, {"Content-Type": "text/html"}
         return (
-            "<h2>Bob Chat UI not found.</h2>"
-            "<p>Copy bob_chat.html to your Flask templates folder.</p>",
+            "<h2>Chat UI not found.</h2>"
+            "<p>Copy the chat template to your Flask templates folder.</p>",
             404,
         )

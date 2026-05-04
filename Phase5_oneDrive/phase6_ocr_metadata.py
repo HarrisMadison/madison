@@ -74,13 +74,39 @@ _DOC_TYPE_RULES: list[tuple[str, str]] = [
 ]
 
 # ── Property name extractor ───────────────────────────────────────────────────
-# Extracts property name from GCS path:
-# onedrive-mirror/Doorloop/9 Andover Drive/files/appraisal.pdf -> "9 Andover Drive"
+# Extracts a meaningful grouping name from the GCS blob path.
+#
+# When ONEDRIVE_FOLDER_PATH is set (e.g. "Doorloop"), paths look like:
+#   onedrive-mirror/Doorloop/<PROPERTY>/files/appraisal.pdf  -> "<PROPERTY>"
+#
+# When ONEDRIVE_FOLDER_PATH is empty (whole-drive sync), paths look like:
+#   onedrive-mirror/<TOPLEVEL>/<sub>/file.pdf                -> "<TOPLEVEL>"
+#   onedrive-mirror/<TOPLEVEL>/file.pdf                      -> "<TOPLEVEL>"
+#
+# We strip the configured scope prefix (if any) and use the next segment
+# as the property/folder grouping name. Falls back to "" when the path
+# is too shallow to extract anything meaningful.
 def _extract_property(blob_name: str) -> str:
-    parts = blob_name.replace("\\", "/").split("/")
-    # Expected: onedrive-mirror / Doorloop / <PROPERTY> / files|photos / filename
-    if len(parts) >= 3:
-        return parts[2]   # property name is always index 2
+    parts = [p for p in blob_name.replace("\\", "/").split("/") if p]
+    # Drop leading 'onedrive-mirror' if present
+    if parts and parts[0] == "onedrive-mirror":
+        parts = parts[1:]
+
+    scope = os.environ.get("ONEDRIVE_FOLDER_PATH", "").strip("/").strip()
+    if scope:
+        scope_parts = [p for p in scope.split("/") if p]
+        # If the path starts with the scope folder, strip it
+        if parts[: len(scope_parts)] == scope_parts:
+            parts = parts[len(scope_parts):]
+
+    # First remaining segment is the grouping name; we need at least 1 more
+    # segment (the file or a subfolder) for it to be a real grouping.
+    if len(parts) >= 2:
+        return parts[0]
+    if len(parts) == 1:
+        # Could be either a top-level file or a single-segment grouping;
+        # treat as ungrouped.
+        return ""
     return ""
 
 
@@ -170,6 +196,15 @@ def needs_ocr(blob_name: str, blob_size: int) -> bool:
 
 
 # ── Document AI OCR ───────────────────────────────────────────────────────────
+# Module-level circuit breaker. If OCR fails for a deterministic reason
+# (permission denied, processor not found, API not enabled), every subsequent
+# call will fail the same way. Flip this flag on the first such failure and
+# skip all further OCR attempts for the remainder of the run -- saves hours
+# of wasted retries.
+_OCR_DISABLED = False
+_OCR_DISABLED_REASON = ""
+
+
 def ocr_pdf_gcs(gcs_uri: str, project_id: str, location: str = "us") -> str | None:
     """
     Run Google Document AI OCR on a GCS-hosted PDF.
@@ -180,9 +215,17 @@ def ocr_pdf_gcs(gcs_uri: str, project_id: str, location: str = "us") -> str | No
       2. Create an OCR processor:
          gcloud ai document-processors create --type=OCR_PROCESSOR --location=us
       3. Set DOCAI_PROCESSOR_ID in your .env
+      4. Grant the service account 'roles/documentai.apiUser'
 
     Cost: ~$1.50 per 1,000 pages. A 400-doc library at ~15 pages avg = ~$9 total.
     """
+    global _OCR_DISABLED, _OCR_DISABLED_REASON
+
+    # Circuit breaker: skip silently if a previous call already determined
+    # OCR is unavailable for the rest of this run.
+    if _OCR_DISABLED:
+        return None
+
     processor_id = os.environ.get("DOCAI_PROCESSOR_ID", "")
     if not processor_id:
         log.debug("  OCR skipped: DOCAI_PROCESSOR_ID not set in .env")
@@ -219,7 +262,35 @@ def ocr_pdf_gcs(gcs_uri: str, project_id: str, location: str = "us") -> str | No
     except ImportError:
         log.debug("  OCR skipped: google-cloud-documentai not installed")
         log.debug("  Install: pip install google-cloud-documentai")
+        _OCR_DISABLED = True
+        _OCR_DISABLED_REASON = "google-cloud-documentai library not installed"
         return None
     except Exception as e:
-        log.warning(f"  OCR failed for {gcs_uri}: {e}")
+        err_str = str(e)
+        # Detect deterministic failures and trip the circuit breaker so we
+        # don't retry thousands of times for the same reason.
+        deterministic_signals = (
+            "403",                    # Permission denied
+            "PERMISSION_DENIED",
+            "IAM_PERMISSION_DENIED",
+            "404",                    # Processor not found / API not enabled
+            "NOT_FOUND",
+            "has not been used",      # API not enabled in project
+            "is not enabled",
+        )
+        if any(sig in err_str for sig in deterministic_signals):
+            _OCR_DISABLED = True
+            _OCR_DISABLED_REASON = err_str[:200]
+            log.error(
+                "OCR has been DISABLED for this run after a deterministic failure. "
+                "All subsequent scanned PDFs will fall through to Vertex's parser."
+            )
+            log.error(f"  Reason: {err_str[:300]}")
+            log.error(
+                "  Likely fix: grant the service account 'roles/documentai.apiUser' "
+                "and re-run --rebuild-only."
+            )
+        else:
+            # Transient errors (network, rate limit) -- log and continue
+            log.warning(f"  OCR failed for {gcs_uri}: {err_str[:200]}")
         return None

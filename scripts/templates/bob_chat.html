@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<title>{% if company %}{{ company }} — Bob{% else %}Property Intelligence{% endif %}</title>
+<title>{% if company %}{{ company }}{% else %}Property Intelligence{% endif %}</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <script src="https://cdn.jsdelivr.net/npm/marked@9/marked.min.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600&family=IBM+Plex+Sans:wght@300;400;500&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet"/>
@@ -1121,7 +1121,7 @@ function appendUserMessage(text) {
   const div = document.createElement('div');
   div.className = 'msg user';
   div.innerHTML = `
-    <div class="msg-avatar">BOB</div>
+    <div class="msg-avatar">YOU</div>
     <div class="msg-body">
       <div class="msg-bubble">${escHtml(text)}</div>
     </div>`;
@@ -1421,7 +1421,7 @@ function adminLoadStatus() {
             ' <span>$1</span>') || d.company;
         document.getElementById('headerSub').textContent =
           'DOCUMENT INTELLIGENCE';
-        document.title = d.company + ' — Bob';
+        document.title = d.company;
       }
       document.getElementById('adm-project').textContent   = d.project_id    || '—';
       document.getElementById('adm-engine').textContent    = d.engine_id     || '—';

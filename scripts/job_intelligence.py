@@ -14,13 +14,13 @@ import google.auth
 import google.generativeai as genai
 
 SERVING_CONFIG = os.getenv("VERTEX_SERVING_CONFIG", "")
-GEMINI_MODEL   = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
+GEMINI_MODEL   = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 SESSION_TTL    = 3600
 MAX_HISTORY    = 6
 CONTEXT_CACHE_MINUTES = 15  # Reuse search results for this long
 
-SYSTEM_PROMPT = """You are MAC, the document intelligence assistant.
-You help Bob find information in his indexed documents about jobs, properties, permits, loans, appraisals, and claims.
+SYSTEM_PROMPT = """You are a document intelligence assistant.
+You help the user find information in their indexed documents about jobs, properties, permits, loans, appraisals, and claims.
 You will receive search results from the document index plus conversation history.
 
 RULES:
@@ -150,18 +150,28 @@ class JobIntelligence:
         - Fast and cheap
         """
         client = discoveryengine.SearchServiceClient(credentials=self._creds)
-        
-        # OPTIMIZED: Retrieval only, no summary_spec
+
+        # Ask Vertex for both snippets AND extractive segments. Some doc types
+        # (short single-page invoices, scanned-text PDFs, .docx with tables)
+        # only return content under one of these, not both. We then read
+        # whichever fields actually have text.
         content_spec = discoveryengine.SearchRequest.ContentSearchSpec(
             snippet_spec=discoveryengine.SearchRequest.ContentSearchSpec.SnippetSpec(
                 return_snippet=True,
-                max_snippet_count=3))
-        
+                max_snippet_count=5,
+            ),
+            extractive_content_spec=discoveryengine.SearchRequest.ContentSearchSpec.ExtractiveContentSpec(
+                max_extractive_segment_count=3,
+                max_extractive_answer_count=3,
+            ),
+        )
+
         req = discoveryengine.SearchRequest(
-            serving_config=SERVING_CONFIG, 
+            serving_config=SERVING_CONFIG,
             query=query,
-            page_size=10, 
-            content_search_spec=content_spec)
+            page_size=10,
+            content_search_spec=content_spec,
+        )
 
         response = client.search(req)
         results = list(response)  # Materialize
@@ -172,30 +182,50 @@ class JobIntelligence:
             doc = r.document
             title = _safe_struct_get(doc.struct_data, "title", "")
             uri   = _safe_struct_get(doc.struct_data, "uri", "")
-            
-            # Get snippet content
-            snippet_text = ""
-            if hasattr(r, 'document') and hasattr(r.document, 'derived_struct_data'):
-                try:
-                    snippet_data = r.document.derived_struct_data
-                    if hasattr(snippet_data, 'snippets'):
-                        snippets = snippet_data.snippets
-                        if snippets:
-                            snippet_text = " ".join([s.snippet for s in snippets[:2]])
-                except:
-                    pass
-            
+
+            # Extract content text robustly. derived_struct_data is a proto
+            # MapComposite that behaves like a dict but doesn't expose nested
+            # fields as Python attributes. Walk it as a dict.
+            text_parts = []
+            try:
+                derived = doc.derived_struct_data
+                if derived:
+                    # Convert to plain dict so .get() works regardless of proto type
+                    d = dict(derived) if not isinstance(derived, dict) else derived
+
+                    # 1) snippets[]: each item has 'snippet' (HTML) and 'snippet_status'
+                    for snip in (d.get("snippets") or []):
+                        s = snip.get("snippet") if isinstance(snip, dict) else getattr(snip, "snippet", "")
+                        if s:
+                            text_parts.append(re.sub(r"<[^>]+>", "", str(s)))
+
+                    # 2) extractive_segments[]: longer chunks of doc text
+                    for seg in (d.get("extractive_segments") or []):
+                        s = seg.get("content") if isinstance(seg, dict) else getattr(seg, "content", "")
+                        if s:
+                            text_parts.append(str(s))
+
+                    # 3) extractive_answers[]: short answers extracted from doc
+                    for ans in (d.get("extractive_answers") or []):
+                        s = ans.get("content") if isinstance(ans, dict) else getattr(ans, "content", "")
+                        if s:
+                            text_parts.append(str(s))
+            except Exception as e:
+                print(f"[Vertex] snippet extract error: {e}")
+
+            snippet_text = "\n".join(text_parts).strip()
+
             if not title:
                 title = _safe_struct_get(doc.derived_struct_data, "title", "")
-            
+
             label = title or (Path(uri).name if uri else doc.id or "Document")
-            
+
             if label and label not in seen:
                 seen.add(label)
                 sources.append({
-                    "title": label, 
+                    "title": label,
                     "uri": uri,
-                    "snippet": snippet_text[:200]  # First 200 chars of snippet
+                    "snippet": snippet_text[:3000],  # 3000-char window per doc
                 })
 
         return sources[:10], len(sources)
@@ -245,29 +275,50 @@ class JobIntelligence:
                       f"permit number, loan number, dollar amount, or document name.")
         elif self._use_gemini:
             # GEMINI SYNTHESIS: Using retrieved context
-            history = [{"role": m.role, "parts": [m.text]} 
-                      for m in session.history[-(MAX_HISTORY*2):]]
-            
+            # Fold conversation history into the prompt as plain text rather
+            # than using start_chat(history=...). The chat-history API is
+            # strict about message ordering and frequently 400s; inlining is
+            # bulletproof and works with every Gemini model version.
+            history_lines = []
+            for m in session.history[-(MAX_HISTORY*2):]:
+                speaker = "User" if m.role == "user" else "Assistant"
+                history_lines.append(f"{speaker}: {m.text}")
+            history_block = "\n".join(history_lines) if history_lines else "(no prior conversation)"
+
             context_text = "\n\n".join([
-                f"**{s['title']}**\n{s['snippet']}" 
-                for s in sources[:5]
+                f"**{s['title']}**\n{s['snippet']}"
+                for s in sources[:8]
             ])
-            
+
             hint = f"\n[Job in focus: {session.job_context}]" if session.job_context else ""
-            src_list = ", ".join(s["title"] for s in sources[:5])
-            
-            prompt = (f"Documents found: {src_list}{hint}\n\n"
-                      f"Document excerpts:\n{context_text}\n\n"
-                      f"Bob's question: {query}\n\n"
-                      f"Answer based ONLY on the document excerpts above. "
-                      f"Cite specific documents. If the excerpts don't answer the question, say so.")
-            
+            src_list = ", ".join(s["title"] for s in sources[:8])
+
+            prompt = (
+                f"Conversation so far:\n{history_block}\n\n"
+                f"Documents found: {src_list}{hint}\n\n"
+                f"Document excerpts:\n{context_text}\n\n"
+                f"User's question: {query}\n\n"
+                f"Answer based ONLY on the document excerpts above. "
+                f"Cite specific documents. If the excerpts don't answer the question, say so."
+            )
+
             try:
-                chat = self._gemini.start_chat(history=history)
-                answer = chat.send_message(prompt).text
+                resp = self._gemini.generate_content(prompt)
+                answer = (resp.text or "").strip()
+                if not answer:
+                    answer = (
+                        f"Gemini returned an empty response. "
+                        f"Found {num_results} relevant document(s): {src_list}."
+                    )
             except Exception as e:
-                print(f"[Gemini] {e} — using fallback")
-                answer = f"Found {num_results} documents. Check: {src_list}"
+                # Surface the real error so we can see it in the chat,
+                # not just buried in the server log.
+                err_str = str(e)
+                print(f"[Gemini] {err_str}")
+                answer = (
+                    f"Found {num_results} relevant document(s): {src_list}. "
+                    f"Gemini error during synthesis: {err_str[:300]}"
+                )
         else:
             # NO GEMINI: Just list what was found
             src_list = ", ".join(s["title"] for s in sources[:5])
@@ -281,7 +332,7 @@ class JobIntelligence:
         # Build response
         return IntelligenceResponse(
             answer=answer,
-            sources=[{"title": s["title"], "uri": s["uri"]} for s in sources[:5]],
+            sources=[{"title": s["title"], "uri": s["uri"]} for s in sources[:8]],
             search_results=num_results,
             confidence=_score(num_results),
             job_context=session.job_context,

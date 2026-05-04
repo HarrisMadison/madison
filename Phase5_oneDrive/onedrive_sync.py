@@ -15,7 +15,7 @@ SCALE-TODO: switch to client_credentials before production.
 See bootstrap_onedrive.py for full instructions.
 """
 
-import os, sys, json, time, logging, argparse, requests, msal
+import os, sys, json, time, logging, argparse, requests, msal, base64, io
 # Phase 6: lazy-loaded OCR + metadata enrichment
 _P6_LOADED = False
 _enrich_metadata = None
@@ -135,10 +135,16 @@ def list_onedrive_files(token, force):
         log.info("Using OneDrive delta link (incremental sync)")
         url = delta_link
     else:
-        log.info(f"Full folder listing: {ONEDRIVE_FOLDER_PATH}")
+        scope_label = ONEDRIVE_FOLDER_PATH if ONEDRIVE_FOLDER_PATH else "(entire OneDrive root)"
+        log.info(f"Full listing scope: {scope_label}")
         drive_id = _get_drive_id(token)
         log.info(f"Drive ID: {drive_id[:20]}...")
-        url = f"{GRAPH_API}/drives/{drive_id}/root:/{ONEDRIVE_FOLDER_PATH}:/delta"
+        # Empty ONEDRIVE_FOLDER_PATH -> sync the whole drive from root.
+        # Non-empty -> scope to that folder path (legacy DoorLoop behavior).
+        if ONEDRIVE_FOLDER_PATH.strip():
+            url = f"{GRAPH_API}/drives/{drive_id}/root:/{ONEDRIVE_FOLDER_PATH}:/delta"
+        else:
+            url = f"{GRAPH_API}/drives/{drive_id}/root/delta"
 
     while url:
         # Retry loop with backoff for Graph API rate limiting (429)
@@ -223,6 +229,130 @@ _last_drive_id = ""
 _last_items: list = []
 
 
+# ── Pre-extraction support ───────────────────────────────────────────────────────
+# Pulls text out of PDF/DOCX/XLSX/CSV/TXT directly so we hand Vertex
+# already-extracted text via rawBytes instead of relying on its own parser.
+# This solves the core problem where Vertex's parser silently fails on
+# certain text PDFs (invoicing software output, hybrid PDFs, etc.) and
+# returns empty snippets even though the file has perfectly readable text.
+#
+# Falls back to letting Vertex parse the file when our extractor returns
+# nothing -- so this is purely additive, never destructive.
+
+MAX_EXTRACTED_CHARS = 200_000   # cap per doc to avoid huge proto payloads
+
+def _extract_text_from_bytes(file_bytes: bytes, ext: str, name_for_log: str = "") -> str:
+    """Extract plain text from common doc formats. Returns '' on failure."""
+    ext = ext.lower()
+    try:
+        if ext == ".pdf":
+            try:
+                import pdfplumber
+                text_parts = []
+                with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
+                    for page in pdf.pages:
+                        t = page.extract_text() or ""
+                        if t:
+                            text_parts.append(t)
+                        # Also try to capture tables as readable text
+                        for table in page.extract_tables() or []:
+                            for row in table:
+                                cells = [c for c in (row or []) if c]
+                                if cells:
+                                    text_parts.append(" | ".join(str(c) for c in cells))
+                return "\n".join(text_parts).strip()
+            except Exception as e:
+                log.debug(f"  pdfplumber failed on {name_for_log}: {e}")
+                return ""
+
+        if ext in (".docx",):
+            try:
+                from docx import Document  # python-docx
+                doc = Document(io.BytesIO(file_bytes))
+                parts = [p.text for p in doc.paragraphs if p.text]
+                # Tables
+                for table in doc.tables:
+                    for row in table.rows:
+                        cells = [c.text.strip() for c in row.cells if c.text.strip()]
+                        if cells:
+                            parts.append(" | ".join(cells))
+                return "\n".join(parts).strip()
+            except ImportError:
+                log.debug("  python-docx not installed; .docx will use Vertex parser")
+                return ""
+            except Exception as e:
+                log.debug(f"  docx parse failed on {name_for_log}: {e}")
+                return ""
+
+        if ext in (".xlsx", ".xls"):
+            try:
+                from openpyxl import load_workbook
+                wb = load_workbook(io.BytesIO(file_bytes), data_only=True, read_only=True)
+                parts = []
+                for sheet in wb.worksheets:
+                    parts.append(f"[Sheet: {sheet.title}]")
+                    for row in sheet.iter_rows(values_only=True):
+                        cells = [str(c) for c in row if c is not None and str(c).strip()]
+                        if cells:
+                            parts.append(" | ".join(cells))
+                return "\n".join(parts).strip()
+            except ImportError:
+                log.debug("  openpyxl not installed; .xlsx will use Vertex parser")
+                return ""
+            except Exception as e:
+                log.debug(f"  xlsx parse failed on {name_for_log}: {e}")
+                return ""
+
+        if ext in (".csv", ".txt"):
+            try:
+                return file_bytes.decode("utf-8", errors="replace").strip()
+            except Exception:
+                return ""
+
+        if ext == ".pptx":
+            try:
+                from pptx import Presentation
+                prs = Presentation(io.BytesIO(file_bytes))
+                parts = []
+                for i, slide in enumerate(prs.slides, 1):
+                    parts.append(f"[Slide {i}]")
+                    for shape in slide.shapes:
+                        if hasattr(shape, "text") and shape.text:
+                            parts.append(shape.text)
+                return "\n".join(parts).strip()
+            except ImportError:
+                log.debug("  python-pptx not installed; .pptx will use Vertex parser")
+                return ""
+            except Exception as e:
+                log.debug(f"  pptx parse failed on {name_for_log}: {e}")
+                return ""
+
+    except Exception as e:
+        log.debug(f"  Unexpected extraction error on {name_for_log}: {e}")
+    return ""
+
+
+def _build_item_index(items: list) -> dict:
+    """Map GCS blob path -> { webUrl, item_id, name } from OneDrive items.
+    Used at manifest-build time to inject OneDrive 'open in browser' URLs into
+    every doc's structData (the DoorLoop pipeline does the equivalent with a
+    Drive cache).
+    """
+    out = {}
+    for it in items:
+        if "file" not in it:
+            continue
+        name = it.get("name", "")
+        parent_path = it.get("parentReference", {}).get("path", "").split("root:")[-1].strip("/")
+        gcs_key = f"onedrive-mirror/{parent_path}/{name}" if parent_path else f"onedrive-mirror/{name}"
+        out[gcs_key] = {
+            "webUrl":  it.get("webUrl", ""),
+            "item_id": it.get("id", ""),
+            "name":    name,
+        }
+    return out
+
+
 def _make_doc_id(blob_name: str) -> str:
     """Sanitize a GCS blob path into a valid Vertex document ID.
     Vertex requires: [a-zA-Z0-9-_]* only.
@@ -260,11 +390,36 @@ def _build_photo_pointer_docs(token: str, drive_id: str, folder_path: str, items
             continue
         parent_path = item.get("parentReference", {}).get("path", "").split("root:")[-1].strip("/")
         parts = [p for p in parent_path.split("/") if p]
-        # parts: ['Doorloop', '9 Andover Drive', 'photos']
-        if len(parts) >= 2:
-            prop_key = f"{parts[1]}/{parts[2]}" if len(parts) > 2 else parts[1]
+
+        # Decide grouping key:
+        # - If ONEDRIVE_FOLDER_PATH is set (e.g. "Doorloop"), strip it from the
+        #   front of the path and use the next 1-2 segments as the property key.
+        #   This preserves the original DoorLoop layout behavior.
+        # - If ONEDRIVE_FOLDER_PATH is empty (whole-drive sync), group by the
+        #   immediate parent folder of the photo (or up to 2 trailing segments).
+        if folder_path.strip():
+            scope_parts = [p for p in folder_path.split("/") if p]
+            # Drop the scope prefix from parts if present
+            if parts[: len(scope_parts)] == scope_parts:
+                rel = parts[len(scope_parts):]
+            else:
+                rel = parts
+            if len(rel) >= 2:
+                prop_key = f"{rel[0]}/{rel[1]}"
+            elif len(rel) == 1:
+                prop_key = rel[0]
+            else:
+                prop_key = "Unknown"
         else:
-            prop_key = parent_path or "Unknown"
+            # Whole-drive mode: group by immediate parent folder; if there is a
+            # grandparent we keep both so we can reconstruct an OneDrive URL.
+            if len(parts) >= 2:
+                prop_key = f"{parts[-2]}/{parts[-1]}"
+            elif len(parts) == 1:
+                prop_key = parts[0]
+            else:
+                prop_key = "Unknown"
+
         property_photos[prop_key].append(item)
 
     pointer_docs = []
@@ -274,7 +429,7 @@ def _build_photo_pointer_docs(token: str, drive_id: str, folder_path: str, items
         sub_folder  = parts[1] if len(parts) > 1 else "photos"
         photo_count = len(photo_items)
 
-        od_folder_path = f"{folder_path}/{prop_name}/{sub_folder}"
+        od_folder_path = "/".join([s for s in [folder_path, prop_name, sub_folder] if s])
         od_url = _get_onedrive_folder_url(token, drive_id, od_folder_path)
 
         doc_id    = _make_doc_id(f"photo_pointer_{prop_key}")
@@ -326,9 +481,14 @@ def _build_and_upload_manifest(dry_run: bool, token: str = "", drive_id: str = "
     gcs_client = storage.Client(project=GCP_PROJECT_ID, credentials=creds)
     bucket     = gcs_client.bucket(GCS_BUCKET_NAME)
 
+    # Build OneDrive URL index so we can stamp webUrl into every doc
+    item_index = _build_item_index(items or [])
+    log.info(f"  Item index built: {len(item_index)} OneDrive URLs available")
+
     lines: list[str] = []
     seen_ids: set    = set()
     count_docs = count_large = 0
+    count_extracted = count_ocr = count_passthrough = 0
 
     for blob in bucket.list_blobs(prefix="onedrive-mirror/"):
         name_lower = blob.name.lower()
@@ -352,6 +512,11 @@ def _build_and_upload_manifest(dry_run: bool, token: str = "", drive_id: str = "
                 "gcs_uri":       uri,
                 "summary":       f"{title} is a {size_mb:.1f} MB PDF. GCS path: {uri}",
             }
+            # Stamp OneDrive web URL if available
+            od_info = item_index.get(blob.name)
+            if od_info and od_info.get("webUrl"):
+                base_meta["onedrive_url"] = od_info["webUrl"]
+                base_meta["source_uri"]   = od_info["webUrl"]
             _load_phase6()
             if _enrich_metadata:
                 base_meta = _enrich_metadata(blob.name, base_meta)
@@ -360,44 +525,70 @@ def _build_and_upload_manifest(dry_run: bool, token: str = "", drive_id: str = "
             count_large += 1
         else:
             base_struct = {"title": title, "source_uri": uri}
+            # Stamp OneDrive web URL if available so the chat can link directly
+            od_info = item_index.get(blob.name)
+            if od_info and od_info.get("webUrl"):
+                base_struct["onedrive_url"] = od_info["webUrl"]
+                # Prefer OneDrive URL as source_uri (better than gs:// for users)
+                base_struct["source_uri"]   = od_info["webUrl"]
+                base_struct["gcs_uri"]      = uri
+
             _load_phase6()
             if _enrich_metadata:
                 base_struct = _enrich_metadata(blob.name, base_struct)
-            # OCR for scanned PDFs (fires only if DOCAI_PROCESSOR_ID is in .env)
+
+            # ── Step 1: try our own pre-extraction (pdfplumber / docx / xlsx) ────
+            extracted_text = ""
+            try:
+                file_bytes = blob.download_as_bytes()
+                extracted_text = _extract_text_from_bytes(file_bytes, ext, blob.name)
+            except Exception as e:
+                log.debug(f"  Could not download {blob.name} for extraction: {e}")
+
+            # ── Step 2: if extraction failed and OCR is enabled, try OCR ────────
             ocr_text = None
-            if _needs_ocr and _ocr_pdf_gcs and ext == ".pdf":
+            if not extracted_text and _needs_ocr and _ocr_pdf_gcs and ext == ".pdf":
                 if _needs_ocr(blob.name, blob.size or 0):
                     ocr_text = _ocr_pdf_gcs(uri, GCP_PROJECT_ID)
-            if ocr_text:
-                import base64
+
+            # ── Decide which content path to ship to Vertex ────────────────────
+            content_text = extracted_text or ocr_text or ""
+            if content_text:
+                if len(content_text) > MAX_EXTRACTED_CHARS:
+                    content_text = content_text[:MAX_EXTRACTED_CHARS]
                 lines.append(json.dumps({
                     "id":       doc_id,
                     "jsonData": json.dumps(base_struct),
                     "content":  {
                         "mimeType": "text/plain",
                         "rawBytes": base64.b64encode(
-                            ocr_text.encode("utf-8")
+                            content_text.encode("utf-8")
                         ).decode("ascii"),
                     },
                 }))
+                if extracted_text:
+                    count_extracted += 1
+                else:
+                    count_ocr += 1
             else:
+                # Fall through: let Vertex's own parser try the file.
                 lines.append(json.dumps({
                     "id":       doc_id,
                     "jsonData": json.dumps(base_struct),
                     "content":  {"mimeType": _MIME_MAP.get(ext, "application/pdf"), "uri": uri},
                 }))
+                count_passthrough += 1
             count_docs += 1
 
     # Photo pointer docs (one per property, with OneDrive URL)
+    photo_pointers = []
     if token and drive_id and items:
         photo_pointers = _build_photo_pointer_docs(token, drive_id, ONEDRIVE_FOLDER_PATH, items)
         for p in photo_pointers:
             if p["id"] not in seen_ids:
                 seen_ids.add(p["id"])
                 lines.append(json.dumps(p))
-        count_photos = len(photo_pointers)
-    else:
-        count_photos = 0
+    count_photos = len(photo_pointers)
 
     manifest_path = "manifests/import_manifest_latest.jsonl"
     bucket.blob(manifest_path).upload_from_string("\n".join(lines))
@@ -425,8 +616,10 @@ def _build_and_upload_manifest(dry_run: bool, token: str = "", drive_id: str = "
                      f"gs://{GCS_BUCKET_NAME}/manifests/photo_index.json")
 
     log.info(
-        f"Manifest: {count_docs} docs + {count_large} large-PDF pointers "
-        f"+ {count_photos} photo pointers -> {manifest_uri}"
+        f"Manifest: {count_docs} docs ({count_extracted} pre-extracted, "
+        f"{count_ocr} OCR, {count_passthrough} passthrough) + "
+        f"{count_large} large-PDF pointers + {count_photos} photo pointers "
+        f"-> {manifest_uri}"
     )
     return manifest_uri
 
@@ -464,11 +657,11 @@ def trigger_vertex_import(dry_run):
     else:
         log.error(f"Vertex import failed: {r.status_code} {r.text}")
 
-def run_sync(dry_run=False, force=False):
+def run_sync(dry_run=False, force=False, rebuild_only=False):
     global _last_token, _last_drive_id, _last_items
 
     log.info("=" * 50)
-    log.info(f"OneDrive sync started -- dry_run={dry_run}, force={force}")
+    log.info(f"OneDrive sync started -- dry_run={dry_run}, force={force}, rebuild_only={rebuild_only}")
     log.info("=" * 50)
 
     ms_token = _get_ms_token()
@@ -478,6 +671,23 @@ def run_sync(dry_run=False, force=False):
         _last_drive_id = _get_drive_id(ms_token)
     except Exception:
         _last_drive_id = ""
+
+    if rebuild_only:
+        # Skip the OneDrive download entirely. GCS already has every file
+        # mirrored. We just need to walk GCS, run pre-extraction + OCR,
+        # build the manifest, and trigger Vertex re-import.
+        # We still pull OneDrive item metadata so we can stamp webUrls and
+        # build photo pointer docs, but no file bytes get downloaded from
+        # OneDrive.
+        log.info("Rebuild-only mode: skipping OneDrive file download.")
+        log.info("Fetching OneDrive item index for webUrl stamping...")
+        files = list_onedrive_files(ms_token, force=True)
+        _last_items = files
+        log.info(f"OneDrive metadata loaded: {len(files)} items (used for webUrl + photo pointers only)")
+        log.info("Building manifest from existing GCS contents with pre-extraction + OCR...")
+        trigger_vertex_import(dry_run=dry_run)
+        log.info("=" * 50)
+        return
 
     files = list_onedrive_files(ms_token, force=force)
     _last_items = files
@@ -508,7 +718,9 @@ def run_sync(dry_run=False, force=False):
             errors += 1
 
     log.info(f"Sync complete: {uploaded} docs uploaded, {len(photos)} photos skipped, {errors} errors")
-    if uploaded > 0 or dry_run:
+    # Always trigger Vertex import (even when --force has no new files) so the
+    # manifest is rebuilt with the latest pre-extraction + OCR logic.
+    if uploaded > 0 or dry_run or force:
         trigger_vertex_import(dry_run=dry_run)
     log.info("=" * 50)
 
@@ -527,13 +739,17 @@ def run_scheduled(interval_minutes):
 def main():
     parser = argparse.ArgumentParser(description="OneDrive -> GCS -> Vertex AI Search sync")
     parser.add_argument("--dry-run",  action="store_true")
-    parser.add_argument("--force",    action="store_true")
+    parser.add_argument("--force",    action="store_true",
+                        help="Re-fetch all files from OneDrive (ignores delta link)")
+    parser.add_argument("--rebuild-only", action="store_true",
+                        help="Skip OneDrive download. Re-build Vertex manifest from existing "
+                             "GCS contents with pre-extraction + OCR. Fast (~10-30 min).")
     parser.add_argument("--schedule", type=int, metavar="MINUTES")
     args = parser.parse_args()
     if args.schedule:
         run_scheduled(args.schedule)
     else:
-        run_sync(dry_run=args.dry_run, force=args.force)
+        run_sync(dry_run=args.dry_run, force=args.force, rebuild_only=args.rebuild_only)
 
 if __name__ == "__main__":
     main()

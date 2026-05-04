@@ -25,11 +25,17 @@ def _load_env():
 REQUIRED_VARS = [
     ("AZURE_CLIENT_ID",    "Azure App Client ID",          "portal.azure.com > App registrations > your app > Overview", ""),
     ("AZURE_TENANT_ID",    "Azure Tenant ID",              "portal.azure.com > App registrations > your app > Overview", ""),
-    ("ONEDRIVE_FOLDER_PATH","OneDrive Folder Path",        "e.g. Documents/Doorloop", ""),
     ("GCP_PROJECT_ID",     "GCP Project ID",               "e.g. island-advantage-realty-rag-35", ""),
     ("GCS_BUCKET_NAME",    "GCS Bucket Name (no gs://)",   "The bucket that will mirror OneDrive files", ""),
     ("VERTEX_LOCATION",    "Vertex AI Search location",    "Almost always: global", "global"),
     ("VERTEX_DATASTORE_ID","Vertex AI Search Datastore ID","e.g. island-advantage-realty-ds-v1", ""),
+]
+
+# Optional: ONEDRIVE_FOLDER_PATH is intentionally allowed to be empty.
+# Empty value -> sync the entire OneDrive root.
+# Set value  -> scope sync to that folder (e.g. "Doorloop").
+OPTIONAL_VARS = [
+    ("ONEDRIVE_FOLDER_PATH","OneDrive Folder Path (empty = whole drive)", "e.g. Documents/Doorloop, or leave blank for entire OneDrive", ""),
 ]
 
 def _read_existing_env():
@@ -145,6 +151,13 @@ def check_env_vars(cfg):
     for key, label, _, _ in REQUIRED_VARS:
         val = cfg.get(key, "")
         ok = _check(key, bool(val), "Missing -- re-run bootstrap to enter") and ok
+    # Show optional vars too, but never fail the check on them
+    for key, label, _, _ in OPTIONAL_VARS:
+        val = cfg.get(key, "")
+        if val:
+            _check(f"{key}={val}", True)
+        else:
+            _check(f"{key} (empty -> whole-drive sync mode)", True)
     return ok
 
 def check_msal_auth(cfg):
@@ -163,7 +176,13 @@ def check_msal_auth(cfg):
         return None
 
 def check_onedrive_folder(token, folder_path):
-    print("\n[3/4] OneDrive folder access")
+    """
+    Verify OneDrive access for the configured scope.
+    - folder_path empty -> list children of the OneDrive root (whole-drive mode)
+    - folder_path set   -> list children of that folder (legacy DoorLoop mode)
+    """
+    scope_label = folder_path if folder_path else "(entire OneDrive root)"
+    print(f"\n[3/4] OneDrive access -- scope: {scope_label}")
     if not token:
         _check("Skipped -- no token", False)
         return False
@@ -177,23 +196,33 @@ def check_onedrive_folder(token, folder_path):
         drive_id = drive_resp.json()["id"]
         _check(f"Drive found: {drive_id[:20]}...", True)
 
-        # Access folder by path using explicit drive ID
-        url = f"{GRAPH_API}/drives/{drive_id}/root:/{folder_path}:/children"
+        # Pick the right Graph URL depending on whether we have a scope folder
+        if folder_path.strip():
+            url = f"{GRAPH_API}/drives/{drive_id}/root:/{folder_path}:/children"
+        else:
+            url = f"{GRAPH_API}/drives/{drive_id}/root/children"
+
         r = requests.get(url, headers={"Authorization": f"Bearer {token}"})
         r.raise_for_status()
         items   = r.json().get("value", [])
         files   = [i for i in items if "file" in i]
         folders = [i for i in items if "folder" in i]
-        _check(f"Folder readable: {len(files)} file(s), {len(folders)} subfolder(s)", True)
+        label = "Root readable" if not folder_path.strip() else "Folder readable"
+        _check(f"{label}: {len(files)} file(s), {len(folders)} subfolder(s)", True)
+        if folders:
+            print("\n       Top-level folders (first 10):")
+            for f in folders[:10]:
+                child_count = f.get("folder", {}).get("childCount", "?")
+                print(f"         {f['name']}/  ({child_count} items)")
         if files:
-            print("\n       Files found (first 10):")
+            print("\n       Top-level files (first 10):")
             for f in files[:10]:
                 size_kb = f.get("size", 0) // 1024
                 print(f"         {f['name']}  ({size_kb} KB)")
         return True
     except Exception as e:
-        _check("OneDrive folder", False, str(e))
-        if "404" in str(e):
+        _check("OneDrive access", False, str(e))
+        if "404" in str(e) and folder_path.strip():
             print(f"       Hint: folder path '{folder_path}' not found.")
             print("       Check ONEDRIVE_FOLDER_PATH in secrets/.env")
         return False
@@ -223,7 +252,7 @@ def main():
     print("=" * 60)
     _load_env()
     cfg = run_interview()
-    for key, *_ in REQUIRED_VARS:
+    for key, *_ in REQUIRED_VARS + OPTIONAL_VARS:
         if os.environ.get(key):
             cfg[key] = os.environ[key]
     env_ok = check_env_vars(cfg)
