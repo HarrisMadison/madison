@@ -46,13 +46,19 @@ def _load_env():
     candidates = [
         os.environ.get("VERTEX_ENV_FILE"),
         Path(__file__).parent / "secrets" / ".env",
+        Path(__file__).parent / "Secrets" / ".env",   # Windows-cased variant
         Path.cwd() / "Phase5_oneDrive" / "secrets" / ".env",
         Path.cwd() / ".env",
+        # Repo top-level .env (this is where Madison Ave's real env actually lives)
+        Path(__file__).resolve().parent.parent / ".env",
+        Path(__file__).resolve().parent.parent / "Phase3_Bootstrap" / "secrets" / ".env",
     ]
     for c in candidates:
         if c and Path(c).exists():
             load_dotenv(c)
+            print(f"  Loaded env: {c}")
             return
+    print("  WARNING: no .env file found — AZURE_TENANT_ID etc. will be empty")
 
 _load_env()
 

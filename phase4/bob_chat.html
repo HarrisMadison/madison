@@ -1159,14 +1159,30 @@ function appendAiMessage(data) {
     high: '✓ High confidence', medium: '~ Medium', low: '⚠ Low', none: '✗ No sources'
   }[conf] || conf;
 
-  // Sources
-  const sourcesHtml = (data.sources || []).length
+  // Sources — handle both legacy (array of strings) and new (array of
+  // objects with .title / .uri) shapes. The new shape comes from the
+  // get_document_by_name tool wiring; the legacy string shape is what
+  // older Vertex search results returned. Normalize to a name+uri pair.
+  const sourcesArr = (data.sources || []).map(s => {
+    if (typeof s === 'string') {
+      return {
+        name: s,
+        uri:  (data.source_uris || {})[s] || ''
+      };
+    }
+    // Object form — pull the human-readable name and a URI if present
+    return {
+      name: s.title || s.filename || s.name || s.id || 'Document',
+      uri:  s.uri  || s.source_uri || (data.source_uris || {})[s.title] || ''
+    };
+  });
+
+  const sourcesHtml = sourcesArr.length
     ? `<div class="sources-row">
-        ${data.sources.map(s => {
-          const uri = (data.source_uris || {})[s] || '';
-          const href = uri ? `/api/download?uri=${encodeURIComponent(uri)}` : '#';
-          const tgt  = uri ? ' target="_blank"' : '';
-          return `<a class="source-chip" href="${href}"${tgt} title="Download ${escHtml(s)}">📄 ${escHtml(s)}</a>`;
+        ${sourcesArr.map(s => {
+          const href = s.uri ? `/api/download?uri=${encodeURIComponent(s.uri)}` : '#';
+          const tgt  = s.uri ? ' target="_blank"' : '';
+          return `<a class="source-chip" href="${href}"${tgt} title="Download ${escHtml(s.name)}">📄 ${escHtml(s.name)}</a>`;
         }).join('')}
        </div>`
     : '';

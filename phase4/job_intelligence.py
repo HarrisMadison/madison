@@ -32,6 +32,23 @@ from google.cloud import discoveryengine_v1 as discoveryengine
 from google.oauth2 import service_account
 from google.api_core.client_options import ClientOptions
 
+# Shared full-text fetcher. Lets Gemini read whole documents on demand instead
+# of guessing from snippets when the user names a specific file.
+#
+# Belt-and-suspenders: ensure the repo root is on sys.path before importing
+# the top-level `vertex` package. Different launchers (simple_web.py,
+# scripts/web.py, or running phase4 directly) start with different paths.
+try:
+    import sys as _sys
+    _REPO_ROOT_FOR_FETCH = Path(__file__).resolve().parent.parent
+    if str(_REPO_ROOT_FOR_FETCH) not in _sys.path:
+        _sys.path.insert(0, str(_REPO_ROOT_FOR_FETCH))
+    from vertex.document_fetch import get_document_by_name as _fetch_doc_by_name
+    _FETCH_AVAILABLE = True
+except Exception as _e:
+    print(f"[Phase4] document_fetch unavailable: {_e}")
+    _FETCH_AVAILABLE = False
+
 # ── Config — read from environment / .env ───────────────────────────────────
 import os as _os
 from pathlib import Path as _Path
@@ -72,6 +89,19 @@ SA_KEY = _resolve_sa_key()
 SYSTEM_PROMPT = """You are a real estate and document intelligence assistant.
 You help the portfolio owner get direct, accurate answers about
 their properties, deals, financials, legal documents, permits, and investment performance.
+
+PRIMARY SOURCE: The DOCUMENT EXCERPTS block in every prompt is your primary
+source of truth. Always read it first and answer from it. List the document
+names you saw in the excerpts when relevant — the user wants to know which
+files you found, even when you cannot fully answer their question.
+
+TOOLS: You may have an optional tool called get_document_by_name. Only call
+it when the user names an EXACT filename AND the excerpts do not already
+answer the question. For general topical questions ("summarize the claims
+status", "what's going on with X"), answer from the excerpts directly —
+DO NOT call the tool. If a tool call returns no match, fall back to the
+excerpts — never tell the user 'no documents were retrieved' when the
+excerpts block contains documents.
 
 RULES:
 1. Answer using ONLY the document excerpts provided. Never invent addresses,
@@ -292,11 +322,17 @@ class JobIntelligence:
             creds = _load_creds()
             genai.configure(credentials=creds)
 
+        # Build the function-calling tool list. If the fetcher import failed
+        # we register only the search tool, so Gemini still works.
+        self._tools = [self._build_tools()] if _FETCH_AVAILABLE else None
+
         self._gemini = genai.GenerativeModel(
             model_name=GEMINI_MODEL,
             system_instruction=SYSTEM_PROMPT,
+            tools=self._tools,
         )
-        print(f"[Phase4] Gemini synthesis ON ({GEMINI_MODEL})")
+        tool_state = "with tools" if self._tools else "no tools"
+        print(f"[Phase4] Gemini synthesis ON ({GEMINI_MODEL}) {tool_state}")
 
         self._search_client = discoveryengine.SearchServiceClient(
             credentials=_load_creds(),
@@ -315,6 +351,84 @@ class JobIntelligence:
         print(f"[Phase4] Architecture: RETRIEVAL-ONLY (no LLM summary, saves quota)")
 
         self._sessions = {}
+
+    # ── Tool declarations for Gemini function calling ───────────────────
+    @staticmethod
+    def _build_tools():
+        """Declare get_document_by_name (and search_documents as a future hook).
+
+        Currently only get_document_by_name is wired through the agent loop —
+        snippet retrieval still happens automatically via retrieve() before
+        Gemini runs. We expose the search tool slot for future expansion when
+        we move retrieve() behind function calling too.
+        """
+        get_doc_tool = genai.protos.FunctionDeclaration(
+            name="get_document_by_name",
+            description=(
+                "OPTIONAL TOOL — only call this when ALL of the following are true: "
+                "(a) the user explicitly references a specific file by an exact "
+                "or near-exact filename (e.g. 'open Northridge_Appraisal.pdf', "
+                "'read the file 15-Northridge-final-invoice'), AND "
+                "(b) the snippet excerpts in the prompt do NOT already answer "
+                "the question. "
+                "DO NOT call this for general topical questions like "
+                "'summarize the claims status', 'what permits do we have', "
+                "'tell me about X' — the snippet excerpts in the prompt cover "
+                "those, and you should answer from them directly. "
+                "If you are unsure, do NOT call this tool — answer from the "
+                "document excerpts already in the prompt instead."
+            ),
+            parameters=genai.protos.Schema(
+                type=genai.protos.Type.OBJECT,
+                properties={
+                    "document_name": genai.protos.Schema(
+                        type=genai.protos.Type.STRING,
+                        description=(
+                            "The filename or partial name as the user "
+                            "referenced it."
+                        ),
+                    ),
+                },
+                required=["document_name"],
+            ),
+        )
+        return genai.protos.Tool(function_declarations=[get_doc_tool])
+
+    def _dispatch_tool(self, name: str, args: dict) -> str:
+        """Run a single tool call and return a plain string Gemini can read.
+
+        IMPORTANT: When get_document_by_name fails (no match), we DO NOT tell
+        Gemini 'no documents exist'. We tell it to fall back to the snippet
+        excerpts already in the prompt. This preserves pre-tool behavior —
+        the snippets are still the primary answer source; the tool is an
+        OPTIONAL upgrade for when an exact filename is given.
+        """
+        if name == "get_document_by_name":
+            if not _FETCH_AVAILABLE:
+                return ("get_document_by_name is currently unavailable. "
+                        "Answer the user's question using the document "
+                        "excerpts already provided in the prompt.")
+            doc_name = (args or {}).get("document_name", "").strip()
+            result = _fetch_doc_by_name(doc_name)
+            if not result.get("ok"):
+                extras = ""
+                if result.get("candidates"):
+                    extras = (f" Near-matches I do see: "
+                              f"{', '.join(result['candidates'])}.")
+                # Explicitly direct Gemini back to the snippet excerpts so it
+                # does not interpret the failure as 'no docs at all'.
+                return (
+                    f"get_document_by_name: no exact match for "
+                    f"{doc_name!r}.{extras} "
+                    f"DO NOT tell the user 'no documents were retrieved' — "
+                    f"that is wrong. The DOCUMENT EXCERPTS already provided "
+                    f"in the original prompt contain relevant material. "
+                    f"Answer the user's question from those excerpts now, "
+                    f"and list which document names appeared in them."
+                )
+            body = result.get("text") or "(empty document)"
+            return f"get_document_by_name OK — file: {result['title']}\n\n{body}"
+        return f"Unknown tool: {name}"
 
     def new_session(self) -> str:
         sid = str(uuid.uuid4())
@@ -344,31 +458,41 @@ class JobIntelligence:
         """
         search_query = f"{job_context} {query}" if job_context else query
 
-        def _make_req(q, flt=""):
+        def _make_req(q, flt="", with_summary: bool = False):
+            """Build a search request.
+
+            with_summary controls whether we ask Vertex for an LLM-generated
+            summary. We default to False because that summary call burns
+            `discoveryengine.googleapis.com/llm_requests` quota AND that
+            quota is currently throttled (429s on every retry). Gemini does
+            the synthesis from snippets anyway — we don't need Vertex's.
+            """
+            content_spec_kwargs = dict(
+                snippet_spec=discoveryengine.SearchRequest.ContentSearchSpec.SnippetSpec(
+                    return_snippet=True,
+                    max_snippet_count=5,
+                ),
+                # Ask for extractive segments + answers too. Different doc
+                # types only return content under one of these. We read
+                # whichever fields actually have text.
+                extractive_content_spec=discoveryengine.SearchRequest.ContentSearchSpec.ExtractiveContentSpec(
+                    max_extractive_segment_count=3,
+                    max_extractive_answer_count=3,
+                ),
+            )
+            if with_summary:
+                content_spec_kwargs["summary_spec"] = (
+                    discoveryengine.SearchRequest.ContentSearchSpec.SummarySpec(
+                        summary_result_count=10,
+                        include_citations=True,
+                    )
+                )
             kw = dict(
                 serving_config=self._serving_config,
                 query=q,
                 page_size=MAX_RESULTS,
                 content_search_spec=discoveryengine.SearchRequest.ContentSearchSpec(
-                    snippet_spec=discoveryengine.SearchRequest.ContentSearchSpec.SnippetSpec(
-                        return_snippet=True,
-                        max_snippet_count=5,
-                    ),
-                    # Ask for extractive segments + answers too. Different doc
-                    # types only return content under one of these. We read
-                    # whichever fields actually have text.
-                    extractive_content_spec=discoveryengine.SearchRequest.ContentSearchSpec.ExtractiveContentSpec(
-                        max_extractive_segment_count=3,
-                        max_extractive_answer_count=3,
-                    ),
-                    # Vertex's own LLM summarization. The DoorLoop pipeline
-                    # relied on this for the rich answer surface. NOTE: results
-                    # MUST be materialized via list(response) BEFORE reading
-                    # response.summary.summary_text, otherwise summary is empty.
-                    summary_spec=discoveryengine.SearchRequest.ContentSearchSpec.SummarySpec(
-                        summary_result_count=10,
-                        include_citations=True,
-                    ),
+                    **content_spec_kwargs
                 ),
             )
             if flt:
@@ -593,10 +717,12 @@ class JobIntelligence:
             f"User's question: {query}"
         )
 
+        # If tools are wired, run a tool-aware loop so Gemini can call
+        # get_document_by_name when the user names a specific file. Otherwise
+        # fall back to single-shot generate_content.
         try:
-            # Use generate_content instead of start_chat(history=...). The chat-history
-            # API is strict about message ordering and frequently 400s; inlining
-            # is bulletproof and works with every Gemini model version.
+            if self._tools:
+                return self._run_tool_loop(prompt, excerpts)
             resp = self._gemini.generate_content(prompt)
             answer = (resp.text or "").strip()
             if not answer:
@@ -614,6 +740,58 @@ class JobIntelligence:
                         f"Gemini error during synthesis: {err_str[:300]}")
             return ("I couldn't find relevant documents for that question. "
                     "Try a more specific query (address, permit number, or document name).")
+
+    def _run_tool_loop(self, prompt: str, excerpts: list, max_rounds: int = 5) -> str:
+        """Run a chat with tool-call iteration. Returns the final answer text."""
+        chat = self._gemini.start_chat(enable_automatic_function_calling=False)
+        msg: object = prompt
+        for _ in range(max_rounds):
+            try:
+                resp = chat.send_message(msg)
+            except Exception as e:
+                # Surface the error directly so it's visible in the UI
+                if excerpts:
+                    doc_list = ", ".join(e2["source"] for e2 in excerpts[:5])
+                    return (f"Found {len(excerpts)} relevant document(s): "
+                            f"{doc_list}. Gemini tool-loop error: {e}")
+                return f"Gemini tool-loop error: {e}"
+
+            try:
+                parts = resp.candidates[0].content.parts
+            except Exception:
+                parts = []
+
+            calls, texts = [], []
+            for p in parts:
+                fc = getattr(p, "function_call", None)
+                if fc and getattr(fc, "name", ""):
+                    calls.append(fc)
+                else:
+                    t = getattr(p, "text", "") or ""
+                    if t:
+                        texts.append(t)
+
+            if not calls:
+                return "".join(texts).strip() or (resp.text or "").strip()
+
+            tool_responses = []
+            for fc in calls:
+                try:
+                    args = dict(fc.args) if fc.args else {}
+                except Exception:
+                    args = {}
+                output = self._dispatch_tool(fc.name, args)
+                tool_responses.append(
+                    genai.protos.Part(
+                        function_response=genai.protos.FunctionResponse(
+                            name=fc.name,
+                            response={"result": output},
+                        )
+                    )
+                )
+            msg = tool_responses
+
+        return "(Hit tool-call iteration limit without a final answer.)"
 
     def chat(self, query: str, session_id: Optional[str] = None) -> IntelligenceResponse:
         session = None

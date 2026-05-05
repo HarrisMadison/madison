@@ -49,8 +49,12 @@ app.secret_key = os.urandom(24)
 
 # Register Phase 4 blueprint if available
 try:
+    _REPO_ROOT = Path(__file__).resolve().parent.parent
+    # Repo root MUST be first so 'from vertex.document_fetch import ...'
+    # inside phase4 modules can resolve the top-level 'vertex' package.
+    sys.path.insert(0, str(_REPO_ROOT))
+    sys.path.insert(0, str(_REPO_ROOT / "phase4"))
     sys.path.insert(0, str(Path(__file__).resolve().parent))
-    sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "phase4"))
     from phase4_routes import phase4_bp
     app.register_blueprint(phase4_bp)
     print("  Phase 4 /bob blueprint loaded.")
@@ -60,6 +64,14 @@ except ImportError as e:
 
 # ── /api/status ─────────────────────────────────────────────────────────────
 
+# Cache the expensive parts of /api/status so that opening the dark UI,
+# clicking Admin, or refreshing the page does NOT burn a Vertex search call
+# every time. The status panel updates every 5 minutes — plenty fresh, and
+# saves us hundreds of search_requests_regional quota hits per day.
+_STATUS_CACHE = {"data": None, "ts": 0}
+_STATUS_CACHE_SECONDS = 1800   # 30 minutes — status panel doesn't need fresh
+
+
 @app.route("/api/status")
 def api_status():
     """
@@ -67,7 +79,20 @@ def api_status():
     Uses a broad Vertex search (page_size=1) to confirm connectivity
     and read response.total_size as the indexed document count.
     Also reads data store metadata (creation time, tier).
+
+    Result is cached for 5 minutes to avoid burning the
+    `discoveryengine.googleapis.com/search_requests_regional` quota on
+    every page-load / admin-panel-open.
     """
+    import time as _time
+
+    # Serve cached result if fresh
+    if _STATUS_CACHE["data"] is not None and (_time.time() - _STATUS_CACHE["ts"]) < _STATUS_CACHE_SECONDS:
+        cached = dict(_STATUS_CACHE["data"])
+        cached["_cached"] = True
+        cached["_cache_age_seconds"] = int(_time.time() - _STATUS_CACHE["ts"])
+        return jsonify(cached)
+
     project_id   = os.getenv("GCP_PROJECT_ID", "")
     engine_id    = os.getenv("VERTEX_ENGINE_ID", "")
     data_store   = os.getenv("VERTEX_DATA_STORE_ID", "")
@@ -141,7 +166,7 @@ def api_status():
     except Exception as ex:
         vertex_error = str(ex)[:140]
 
-    return jsonify({
+    payload = {
         "company":        company,
         "project_id":     project_id,
         "engine_id":      engine_id,
@@ -154,7 +179,14 @@ def api_status():
         "vertex_error":   vertex_error,
         "doc_count":      ds_doc_count,   # integer from total_size
         "ds_created":     ds_created,     # "YYYY-MM-DD" or ""
-    })
+    }
+
+    # Cache the result so the next 5 minutes of page-loads / admin-opens
+    # do NOT each fire a Vertex search.
+    _STATUS_CACHE["data"] = payload
+    _STATUS_CACHE["ts"]   = _time.time()
+
+    return jsonify(payload)
 
 
 # ── Root redirect → /bob ─────────────────────────────────────────────────────
@@ -307,12 +339,10 @@ def api_query():
             snippet_spec=discoveryengine.SearchRequest.ContentSearchSpec.SnippetSpec(
                 return_snippet=True,
             ),
-            summary_spec=discoveryengine.SearchRequest.ContentSearchSpec.SummarySpec(
-                summary_result_count=10,
-                include_citations=True,
-                ignore_adversarial_query=True,
-                ignore_non_summary_seeking_query=False,
-            ),
+            # NO summary_spec — that field requires the
+            # discoveryengine.googleapis.com/llm_requests quota, which is
+            # tightly capped on free-tier projects (frequent 429s). Snippets
+            # are enough for the UI; Gemini does the synthesis elsewhere.
         )
 
         req = discoveryengine.SearchRequest(

@@ -1,7 +1,7 @@
 # Central configuration — every module reads this file.
 
 project:
-  id: commanding-way-380716
+  id: madison-rag-60
   location: global
 
 company:
@@ -18,23 +18,23 @@ admin:
   password: "0714"
 
 gcs:
-  bucket: commanding-way-380716-madison-mirror
-  mirror_prefix: data
-  manifest_prefix: _manifests
+  bucket: madison-rag-60-rag-raw
+  mirror_prefix: onedrive-mirror
+  manifest_prefix: manifests
 
 service_account:
-  email: madison-sync-sa@commanding-way-380716.iam.gserviceaccount.com
-  key_path: service-account.json
+  email: madison-sync-sa@madison-rag-60.iam.gserviceaccount.com
+  key_path: Phase3_Bootstrap/secrets/service-account.json
 
 data_store:
-  id: madison-ave-docs
+  id: madison-avenue-construction-ds-v1
   display_name: Madison Ave Construction Docs
   industry_vertical: GENERIC
   solution_types: [SOLUTION_TYPE_CHAT, SOLUTION_TYPE_SEARCH]
   content_config: CONTENT_REQUIRED
 
 engine:
-  id: madison-ave-search-app
+  id: madison-avenue-construction-engine-v1
   display_name: Madison Ave Intelligent Search
   search_tier: SEARCH_TIER_ENTERPRISE
   search_add_ons: [SEARCH_ADD_ON_LLM]

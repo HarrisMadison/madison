@@ -99,6 +99,33 @@ def api_download():
     try: return jsonify({"url":_signed_url(cfg(),uri,1)})
     except Exception as e: return jsonify({"error":str(e)}),500
 
+# ── /api/document — direct test of the named-document fetcher ──
+# Lets you curl-test the new path-B fetcher without going through Gemini.
+# Usage: GET /api/document?name=<filename or partial name>[&meta=1]
+#   meta=1 returns metadata only (title, uri, char count, candidates)
+#         instead of the full text. Useful when the doc is huge.
+@app.route("/api/document")
+def api_document():
+    name = req.args.get("name", "").strip()
+    meta_only = req.args.get("meta") in ("1", "true", "yes")
+    if not name:
+        return jsonify({"error": "name parameter is required"}), 400
+    try:
+        from vertex.document_fetch import get_document_by_name
+    except Exception as e:
+        return jsonify({"error": f"fetcher import failed: {e}"}), 500
+    result = get_document_by_name(name, cfg=cfg())
+    if meta_only:
+        return jsonify({
+            "ok":         result["ok"],
+            "title":      result.get("title", ""),
+            "uri":        result.get("uri", ""),
+            "char_count": len(result.get("text") or ""),
+            "candidates": result.get("candidates", []),
+            "error":      result.get("error"),
+        })
+    return jsonify(result)
+
 @app.route("/api/email", methods=["POST"])
 def api_email():
     data=req.get_json(force=True); to,docs=data.get("to","").strip(),data.get("docs",[])
