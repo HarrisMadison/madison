@@ -187,6 +187,20 @@ def download_doc():
         current_app.logger.error("[download] {}".format(e), exc_info=True)
         return jsonify({"error": str(e)}), 500
 
+@phase4_bp.route("/api/admin/reload-index", methods=["POST", "GET"])
+def reload_local_index():
+    """Force-reload the in-memory filename index from GCS.
+    Call after running onedrive_sync.py so new files become searchable
+    via the local-index path without restarting simple_web."""
+    try:
+        from local_index import reload_index
+        result = reload_index()
+        status = 200 if result.get("ok") else 500
+        return jsonify(result), status
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
 @phase4_bp.route("/bob")
 def bob_dashboard():
     try:

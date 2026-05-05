@@ -730,11 +730,34 @@ def run_sync(dry_run=False, force=False, rebuild_only=False):
         trigger_vertex_import(dry_run=dry_run)
     log.info("=" * 50)
 
+def trigger_local_index_reload():
+    """Tell the running Flask server (simple_web.py) to reload its in-memory
+    filename index, so newly synced files become searchable in chat WITHOUT
+    a Flask restart.
+
+    Best-effort: if Flask isn't running we just log and move on.
+    """
+    import urllib.request, urllib.error
+    url = os.environ.get("FLASK_RELOAD_URL", "http://localhost:5000/api/admin/reload-index")
+    try:
+        req = urllib.request.Request(url, method="POST")
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            body = resp.read().decode("utf-8", errors="replace")
+            log.info(f"  Local index reload: {body[:200]}")
+    except urllib.error.URLError as e:
+        log.warning(f"  Local index reload skipped (Flask not reachable at {url}): {e.reason}")
+    except Exception as e:
+        log.warning(f"  Local index reload failed: {type(e).__name__}: {e}")
+
+
 def run_scheduled(interval_minutes):
     log.info(f"Scheduled mode: syncing every {interval_minutes} minute(s). Ctrl+C to stop.")
     while True:
         try:
             run_sync()
+            # After a successful sync, ping the running website so it picks
+            # up the new files in its local index without needing a restart.
+            trigger_local_index_reload()
         except Exception as e:
             log.error(f"Sync cycle failed: {e}")
             if "auth" in str(e).lower() or "token" in str(e).lower():

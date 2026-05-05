@@ -390,7 +390,94 @@ def api_query():
         return jsonify({"error": str(e)}), 500
 
 
-# ── Startup ──────────────────────────────────────────────────────────────────
+# ── Background OneDrive sync scheduler ────────────────────────────────────────────
+# Runs onedrive_sync.py at a fixed interval inside the same process so
+# `python simple_web.py` is the ONLY thing the user has to keep running
+# in production. Disable with SYNC_ENABLED=false. Tune with SYNC_INTERVAL_HOURS.
+#
+# After every successful sync the worker also reloads the local filename
+# index in-process, so newly synced files become searchable in chat
+# without a Flask restart.
+
+def _onedrive_sync_worker():
+    """Background thread: run onedrive_sync at intervals, forever.
+    Best-effort. Sync failures are logged but never crash Flask."""
+    import time as _time
+    import traceback
+
+    if os.environ.get("SYNC_ENABLED", "true").lower() == "false":
+        print("[sync-scheduler] disabled via SYNC_ENABLED=false")
+        return
+
+    interval_hours = float(os.environ.get("SYNC_INTERVAL_HOURS", "5"))
+    interval_seconds = int(interval_hours * 3600)
+
+    initial_delay = int(os.environ.get("SYNC_INITIAL_DELAY_SECONDS", "30"))
+    print(f"[sync-scheduler] enabled. First sync in {initial_delay}s, "
+          f"then every {interval_hours}h.")
+    _time.sleep(initial_delay)
+
+    # Add Phase5_oneDrive to import path so we can call run_sync directly
+    repo_root = Path(__file__).resolve().parent.parent
+    p5_dir = repo_root / "Phase5_oneDrive"
+    if str(p5_dir) not in sys.path:
+        sys.path.insert(0, str(p5_dir))
+
+    while True:
+        cycle_start = _time.time()
+        try:
+            print(f"[sync-scheduler] starting sync at {_time.strftime('%Y-%m-%d %H:%M:%S')}")
+            try:
+                # Re-import each cycle in case the module file changed on disk.
+                # This makes hot-fixes possible without a Flask restart.
+                import importlib
+                import onedrive_sync as _ods
+                importlib.reload(_ods)
+                _ods.run_sync(dry_run=False, force=False, rebuild_only=False)
+            except Exception as e:
+                print(f"[sync-scheduler] sync failed: {type(e).__name__}: {e}")
+                traceback.print_exc()
+
+            # Reload the in-memory filename index so new GCS files become
+            # searchable in chat immediately. We call it directly (in-process)
+            # rather than HTTPing /api/admin/reload-index.
+            try:
+                from local_index import reload_index
+                reload_result = reload_index()
+                print(f"[sync-scheduler] local index reloaded: {reload_result}")
+            except Exception as e:
+                print(f"[sync-scheduler] local index reload failed: {e}")
+
+            elapsed = int(_time.time() - cycle_start)
+            print(f"[sync-scheduler] cycle finished in {elapsed}s. "
+                  f"Next sync in {interval_hours}h.")
+        except Exception as e:
+            # Belt-and-suspenders: never let an exception escape the worker.
+            print(f"[sync-scheduler] unexpected worker error: {e}")
+            traceback.print_exc()
+
+        _time.sleep(interval_seconds)
+
+
+def _start_sync_scheduler_once():
+    """Spawn the sync worker as a daemon thread. Idempotent: if the thread
+    is already running, this is a no-op (e.g. when Flask reloader spawns
+    a child process)."""
+    import threading
+    # Guard against double-start under Flask debug reloader
+    if getattr(_start_sync_scheduler_once, "_started", False):
+        return
+    _start_sync_scheduler_once._started = True
+
+    t = threading.Thread(
+        target=_onedrive_sync_worker,
+        name="onedrive-sync-scheduler",
+        daemon=True,   # dies with the main process — no zombie
+    )
+    t.start()
+
+
+# ── Startup ───────────────────────────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
     import webbrowser
@@ -405,6 +492,10 @@ if __name__ == "__main__":
     print(f"  Engine  : {os.getenv('VERTEX_ENGINE_ID', '(not set)')}")
     print(f"  Gemini  : {os.getenv('GEMINI_MODEL', 'disabled')}")
     print(f"  UI      : {url}/bob\n")
+
+    # Kick off background OneDrive sync. Runs in a daemon thread, won't
+    # block Flask startup, won't crash on errors.
+    _start_sync_scheduler_once()
 
     # Always open /bob -- it is the default landing page
     Timer(1.5, lambda: webbrowser.open(f"{url}/bob")).start()

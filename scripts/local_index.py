@@ -218,3 +218,26 @@ def get_index() -> LocalFileIndex:
         except Exception as e:
             print(f"[LocalFileIndex] Load failed: {e}")
     return _INDEX
+
+
+def reload_index() -> dict:
+    """Force re-walk of the GCS bucket. Used after OneDrive sync drops new
+    files into onedrive-mirror/. Returns {ok, file_count, elapsed_seconds, error?}."""
+    global _INDEX
+    import time as _time
+    t0 = _time.time()
+    try:
+        if _INDEX is None:
+            _INDEX = LocalFileIndex()
+        count = _INDEX.load(force=True)
+        return {
+            "ok":               True,
+            "file_count":       count,
+            "elapsed_seconds":  round(_time.time() - t0, 2),
+        }
+    except Exception as e:
+        return {
+            "ok":               False,
+            "error":            str(e),
+            "elapsed_seconds":  round(_time.time() - t0, 2),
+        }
