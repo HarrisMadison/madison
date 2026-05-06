@@ -1163,26 +1163,53 @@ function appendAiMessage(data) {
   // objects with .title / .uri) shapes. The new shape comes from the
   // get_document_by_name tool wiring; the legacy string shape is what
   // older Vertex search results returned. Normalize to a name+uri pair.
+  //
+  // Robustness: any field can come back as a proto-wrapped value (object)
+  // instead of a plain string. We coerce everything to a string and only
+  // accept the result if it's actually non-empty — otherwise we fall
+  // through to the next candidate. Same logic for the URI lookup.
+  const _srcUriMap = data.source_uris || {};
+  const _asStr = v => {
+    if (v == null) return '';
+    if (typeof v === 'string') return v;
+    if (typeof v === 'number' || typeof v === 'boolean') return String(v);
+    if (typeof v === 'object') {
+      // Proto-wrapped string values sometimes look like {stringValue: '...'}
+      if (typeof v.stringValue  === 'string') return v.stringValue;
+      if (typeof v.string_value === 'string') return v.string_value;
+    }
+    return '';
+  };
+  const _firstStr = (...vals) => {
+    for (const v of vals) {
+      const s = _asStr(v);
+      if (s) return s;
+    }
+    return '';
+  };
+
   const sourcesArr = (data.sources || []).map(s => {
     if (typeof s === 'string') {
-      return {
-        name: s,
-        uri:  (data.source_uris || {})[s] || ''
-      };
+      return { name: s, uri: _asStr(_srcUriMap[s]) };
     }
-    // Object form — pull the human-readable name and a URI if present
-    return {
-      name: s.title || s.filename || s.name || s.id || 'Document',
-      uri:  s.uri  || s.source_uri || (data.source_uris || {})[s.title] || ''
-    };
+    if (s && typeof s === 'object') {
+      const name = _firstStr(s.title, s.filename, s.name, s.id) || 'Document';
+      const uri  = _firstStr(s.uri, s.source_uri, _srcUriMap[name], _srcUriMap[s.title]);
+      return { name, uri };
+    }
+    // Last-resort fallback — coerce whatever it is to a string
+    const fallback = _asStr(s) || 'Document';
+    return { name: fallback, uri: _asStr(_srcUriMap[fallback]) };
   });
 
   const sourcesHtml = sourcesArr.length
     ? `<div class="sources-row">
         ${sourcesArr.map(s => {
-          const href = s.uri ? `/api/download?uri=${encodeURIComponent(s.uri)}` : '#';
-          const tgt  = s.uri ? ' target="_blank"' : '';
-          return `<a class="source-chip" href="${href}"${tgt} title="Download ${escHtml(s.name)}">📄 ${escHtml(s.name)}</a>`;
+          const name = String(s.name || 'Document');
+          const uri  = String(s.uri  || '');
+          const href = uri ? `/api/download?uri=${encodeURIComponent(uri)}` : '#';
+          const tgt  = uri ? ' target="_blank"' : '';
+          return `<a class="source-chip" href="${href}"${tgt} title="Download ${escHtml(name)}">📄 ${escHtml(name)}</a>`;
         }).join('')}
        </div>`
     : '';

@@ -255,6 +255,39 @@ def _safe_struct_to_dict(struct):
             return {}
 
 
+def _as_plain_str(v) -> str:
+    """Coerce a struct field to a plain Python string.
+
+    discoveryengine_v1 sometimes hands us proto Value wrappers
+    (MapComposite, RepeatedComposite, etc.) that look like objects when
+    JSON-serialized. We unwrap the common shapes and fall back to str()
+    for anything else, so downstream code (and the JSON response) never
+    sees a non-string source label.
+    """
+    if v is None:
+        return ""
+    if isinstance(v, str):
+        return v
+    if isinstance(v, (int, float, bool)):
+        return str(v)
+    # Proto wrapper: try common attribute shapes first
+    for attr in ("string_value", "stringValue"):
+        sv = getattr(v, attr, None)
+        if isinstance(sv, str):
+            return sv
+    try:
+        # Some Value objects expose a callable .WhichOneof('kind') / .string_value
+        # — but if str() yields a clean string, just use it.
+        s = str(v)
+        # Reject the useless default repr ("[object Object]" never happens in
+        # Python, but "<google._upb._message.Value object at 0x...>" does).
+        if s and not s.startswith("<") and "object at 0x" not in s:
+            return s
+    except Exception:
+        pass
+    return ""
+
+
 def _extract_snippets_from_doc(doc) -> str:
     """
     Pull snippet text from derived_struct_data without triggering LLM quota.
@@ -543,12 +576,14 @@ class JobIntelligence:
             doc = result.document
             struct = _safe_struct_to_dict(doc.struct_data)
 
-            source_uri   = struct.get("source_uri", "")
-            doc_type     = struct.get("document_type", "")
-            onedrive_url = struct.get("onedrive_url", "")
+            source_uri   = _as_plain_str(struct.get("source_uri", ""))
+            doc_type     = _as_plain_str(struct.get("document_type", ""))
+            onedrive_url = _as_plain_str(struct.get("onedrive_url", ""))
 
             if doc_type == "photo_index":
-                prop_name = struct.get("property", struct.get("title", "Property"))
+                prop_name = (_as_plain_str(struct.get("property", ""))
+                             or _as_plain_str(struct.get("title", ""))
+                             or "Property")
                 photo_count = struct.get("photo_count", 0)
                 if onedrive_url:
                     media_links.append({
@@ -564,9 +599,9 @@ class JobIntelligence:
                 continue
 
             if doc_type == "large_pdf_pointer":
-                title = struct.get("title", "Document")
+                title = _as_plain_str(struct.get("title", "")) or "Document"
                 size_mb = struct.get("size_mb", 0)
-                gcs_uri = struct.get("gcs_uri", "")
+                gcs_uri = _as_plain_str(struct.get("gcs_uri", ""))
                 media_links.append({
                     "type":    "document",
                     "title":   title,
@@ -575,12 +610,20 @@ class JobIntelligence:
                 })
                 excerpts.append({
                     "source":  title,
-                    "content": struct.get("summary", f"Large PDF: {title} ({size_mb:.1f} MB)"),
+                    "content": (_as_plain_str(struct.get("summary", ""))
+                                or f"Large PDF: {title} ({size_mb:.1f} MB)"),
                 })
                 continue
 
-            title = struct.get("title", "")
-            source_label = source_uri.split("/")[-1] if source_uri else (title or doc.id or "Unknown")
+            title = _as_plain_str(struct.get("title", ""))
+            doc_id = _as_plain_str(getattr(doc, "id", ""))
+            if source_uri:
+                source_label = source_uri.split("/")[-1]
+            else:
+                source_label = title or doc_id or "Unknown"
+            # Final guarantee: source_label MUST be a plain str so it
+            # serializes as a JSON string and renders as text in the UI.
+            source_label = _as_plain_str(source_label) or "Unknown"
             snippet_content = _extract_snippets_from_doc(doc)
 
             # DIAGNOSTIC: log what we got per doc so we can see why answers fail.
@@ -834,15 +877,20 @@ class JobIntelligence:
                 session.history.append(ChatMessage(role="user",  text=query))
                 session.history.append(ChatMessage(role="model", text=answer_override))
                 session.last_active = time.time()
+                # Coerce sources/uris to plain strings so the JSON response
+                # never carries a proto wrapper that the UI would render as
+                # "[object Object]".
+                _safe_sources = list({_as_plain_str(e["source"]) for e in excerpts if _as_plain_str(e.get("source", ""))})
+                _safe_uris    = {_as_plain_str(k): _as_plain_str(v) for k, v in (source_uris or {}).items() if _as_plain_str(k)}
                 return IntelligenceResponse(
                     answer=answer_override,
-                    sources=list({e["source"] for e in excerpts}),
+                    sources=_safe_sources,
                     search_results=len(excerpts),
                     confidence="high",
                     job_context=session.job_context,
                     suggested_followups=[],
                     media_links=media_links,
-                    source_uris=source_uris,
+                    source_uris=_safe_uris,
                 )
             served_from_pagination = True
         else:
@@ -920,7 +968,10 @@ class JobIntelligence:
             followups = [f"Show more results ({len(excerpts) - shown_so_far} remaining)"] + followups
             followups = followups[:3]
 
-        sources    = list({exc["source"] for exc in excerpts})
+        sources    = list({_as_plain_str(exc["source"]) for exc in excerpts if _as_plain_str(exc.get("source", ""))})
+        # Same coercion for source_uris keys/values — the UI keys off these
+        # to wire up download links.
+        safe_uris  = {_as_plain_str(k): _as_plain_str(v) for k, v in (source_uris or {}).items() if _as_plain_str(k)}
 
         return IntelligenceResponse(
             answer=answer,
@@ -930,7 +981,7 @@ class JobIntelligence:
             job_context=session.job_context,
             suggested_followups=followups,
             media_links=media_links,
-            source_uris=source_uris,
+            source_uris=safe_uris,
         )
 
     def clear_session(self, session_id: str):

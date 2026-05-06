@@ -41,14 +41,16 @@ if (-not (Test-Path $DEV)) {
 }
 
 if (Test-Path $PROD) {
-    Write-Host "  WARNING: $PROD already exists." -ForegroundColor Yellow
-    $resp = Read-Host "  Overwrite? (yes/no)"
+    Write-Host "  Existing prod folder detected at $PROD" -ForegroundColor Yellow
+    Write-Host "  Will UPDATE in place (preserving prod's .env, token cache, delta state)."
+    Write-Host "  Code files will be overwritten with the latest dev versions."
+    $resp = Read-Host "  Continue? (yes/no)"
     if ($resp -ne "yes") {
         Write-Host "  Aborted."
         exit 0
     }
-    Write-Host "  Removing existing $PROD..."
-    Remove-Item -Recurse -Force $PROD
+    # NOTE: we do NOT delete prod first. Robocopy mirrors with /E meaning new
+    # files overwrite, but excluded files (like .env) stay untouched.
 }
 
 # Make parent of PROD if it doesn't exist
@@ -78,7 +80,9 @@ $excludeFiles = @(
     "test_search_output.txt",
     "diag_106.txt",
     "diagnose_output.txt",
-    "probe_output.txt"
+    "probe_output.txt",
+    ".env"                # IMPORTANT: do NOT overwrite prod's .env with dev's.
+                           # Prod's .env has SYNC_ENABLED=true; dev's has =false.
 )
 
 $rcArgs = @(
@@ -127,10 +131,27 @@ SYNC_INTERVAL_HOURS=5
         Add-Content -Path $prodEnv -Value $additions
         Write-Host "  Added port override and sync settings to prod .env" -ForegroundColor Green
     } else {
-        Write-Host "  Production overrides already present in .env (skipping)" -ForegroundColor Yellow
+        Write-Host "  Production overrides already present in .env (preserved)" -ForegroundColor Green
     }
 } else {
-    Write-Host "  WARNING: $prodEnv does not exist. Production will fail to start until you create it." -ForegroundColor Yellow
+    # First-time clone: prod .env doesn't exist yet. Copy dev's, then append overrides.
+    Write-Host "  First-time clone: copying dev .env to prod and adding overrides..."
+    $devEnvFirst = Join-Path $DEV ".env"
+    if (Test-Path $devEnvFirst) {
+        Copy-Item -Path $devEnvFirst -Destination $prodEnv
+        $additions = @"
+
+
+# == Production overrides (added by clone_to_production.ps1) ==
+PORT=5001
+SYNC_ENABLED=true
+SYNC_INTERVAL_HOURS=5
+"@
+        Add-Content -Path $prodEnv -Value $additions
+        Write-Host "  Created prod .env with production overrides" -ForegroundColor Green
+    } else {
+        Write-Host "  WARNING: dev .env not found at $devEnvFirst either. Production will fail to start." -ForegroundColor Yellow
+    }
 }
 
 # -- Disable scheduler in DEV so only prod syncs --------------------------

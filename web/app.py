@@ -96,7 +96,16 @@ def api_query():
 def api_download():
     uri=req.args.get("uri","")
     if not uri.startswith("gs://"): return jsonify({"error":"invalid"}),400
-    try: return jsonify({"url":_signed_url(cfg(),uri,1)})
+    # If the caller asks for JSON (e.g. legacy programmatic clients), keep
+    # the old behavior. Otherwise redirect to a short-lived signed URL so an
+    # <a href="/api/download?uri=..."> chip just downloads/opens the file.
+    want_json = req.args.get("json") in ("1","true","yes")
+    try:
+        signed = _signed_url(cfg(),uri,1)
+        if want_json:
+            return jsonify({"url":signed})
+        from flask import redirect
+        return redirect(signed, code=302)
     except Exception as e: return jsonify({"error":str(e)}),500
 
 # ── /api/document — direct test of the named-document fetcher ──

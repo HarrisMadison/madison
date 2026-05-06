@@ -15,10 +15,29 @@ GDRIVE_FOLDER = os.getenv("GDRIVE_FOLDER_IDS", "17oev3CKYBXn4wOuK2K0DxXe5z1v7C0k
 _FILE_CACHE = {}
 
 def _sa_key():
-    for p in [Path(__file__).parent.parent / "service-account.json",
-              Path(__file__).parent / "service-account.json"]:
-        if p.exists():
-            return str(p)
+    # Mirror the discovery order used elsewhere in the codebase (local_index,
+    # job_intelligence) so this route works regardless of how the user
+    # launched simple_web. Order:
+    #   1. GOOGLE_APPLICATION_CREDENTIALS env var (if set and file exists)
+    #   2. <repo>/Phase3_Bootstrap/secrets/service-account.json   <-- bootstrap default
+    #   3. <repo>/service-account.json                            <-- legacy
+    #   4. <scripts>/service-account.json                         <-- legacy
+    repo_root = Path(__file__).resolve().parent.parent
+    candidates = []
+    env_key = os.getenv("GOOGLE_APPLICATION_CREDENTIALS", "").strip()
+    if env_key:
+        candidates.append(Path(env_key))
+    candidates.extend([
+        repo_root / "Phase3_Bootstrap" / "secrets" / "service-account.json",
+        repo_root / "service-account.json",
+        Path(__file__).resolve().parent / "service-account.json",
+    ])
+    for p in candidates:
+        try:
+            if p.exists():
+                return str(p)
+        except Exception:
+            continue
     return None
 
 def _drive_service():
@@ -135,10 +154,57 @@ def list_drive_files():
 
 @phase4_bp.route("/api/download")
 def download_doc():
-    title = request.args.get("title", "").strip()
+    """Download a document. Accepts either:
+      ?uri=gs://bucket/path/to/file.pdf   — stream directly from GCS (preferred,
+                                            works with the local-index path
+                                            that bypasses Vertex/Drive)
+      ?title=<filename>                   — look up in Google Drive cache
+      ?id=<drive_file_id>                 — fetch directly from Drive by ID
+    The gs:// path is the one chips use now because the local-index returns
+    GCS URIs, not Drive file IDs. Drive lookup is kept as a fallback.
+    """
+    gs_uri  = request.args.get("uri", "").strip()
+    title   = request.args.get("title", "").strip()
     file_id = request.args.get("id", "").strip()
+
+    # ── Path 1: gs:// URI — stream directly from GCS ───────────────────
+    if gs_uri.startswith("gs://"):
+        try:
+            from google.cloud import storage as gcs_storage
+            from google.oauth2 import service_account as sa_mod
+            sa = _sa_key()
+            if not sa:
+                return jsonify({"error": "service-account.json not found"}), 500
+            creds = sa_mod.Credentials.from_service_account_file(
+                sa, scopes=["https://www.googleapis.com/auth/cloud-platform"])
+            client = gcs_storage.Client(credentials=creds)
+
+            parts = gs_uri[5:].split("/", 1)
+            if len(parts) != 2:
+                return jsonify({"error": "malformed gs:// URI"}), 400
+            bucket_name, blob_name = parts
+            blob = client.bucket(bucket_name).blob(blob_name)
+            if not blob.exists():
+                return jsonify({"error": "GCS object not found: {}".format(gs_uri)}), 404
+
+            # Reload metadata so content_type is populated. Without this the
+            # client-side download often gets application/octet-stream and
+            # the browser doesn't know how to preview it.
+            blob.reload()
+            data = blob.download_as_bytes()
+            fname = Path(blob_name).name or "download"
+            mime = blob.content_type or "application/octet-stream"
+            return Response(data, headers={
+                "Content-Disposition": "attachment; filename=\"{}\"".format(fname),
+                "Content-Type": mime,
+            })
+        except Exception as e:
+            current_app.logger.error("[download gs] {}".format(e), exc_info=True)
+            return jsonify({"error": "GCS download failed: {}".format(e)}), 500
+
+    # ── Path 2: Drive title/id lookup (legacy) ──────────────────────────
     if not title and not file_id:
-        return jsonify({"error": "title or id required"}), 400
+        return jsonify({"error": "uri, title, or id required"}), 400
     fname = title or file_id
     mime = "application/octet-stream"
     if not file_id:

@@ -1159,14 +1159,58 @@ function appendAiMessage(data) {
     high: '✓ High confidence', medium: '~ Medium', low: '⚠ Low', none: '✗ No sources'
   }[conf] || conf;
 
-  // Sources
-  const sourcesHtml = (data.sources || []).length
+  // Sources — normalize to {name, uri} pairs.
+  // Different code paths return different shapes:
+  //   • Vertex-only path: list[str] of filenames + data.source_uris dict
+  //   • Local-index path: list[{title, uri}] dicts
+  // We handle both, plus a defensive coercion in case any field is a
+  // proto-wrapped value rather than a plain string (which is what was
+  // making chips render as "[object Object]").
+  const _srcUriMap = data.source_uris || {};
+  const _asStr = v => {
+    if (v == null) return '';
+    if (typeof v === 'string') return v;
+    if (typeof v === 'number' || typeof v === 'boolean') return String(v);
+    if (typeof v === 'object') {
+      if (typeof v.stringValue  === 'string') return v.stringValue;
+      if (typeof v.string_value === 'string') return v.string_value;
+    }
+    return '';
+  };
+  const _firstStr = (...vals) => {
+    for (const v of vals) {
+      const s = _asStr(v);
+      if (s) return s;
+    }
+    return '';
+  };
+
+  const sourcesArr = (data.sources || []).map(s => {
+    if (typeof s === 'string') {
+      return { name: s, uri: _asStr(_srcUriMap[s]) };
+    }
+    if (s && typeof s === 'object') {
+      const name = _firstStr(s.title, s.filename, s.name, s.id) || 'Document';
+      const uri  = _firstStr(s.uri, s.source_uri, _srcUriMap[name], _srcUriMap[s.title]);
+      return { name, uri };
+    }
+    const fallback = _asStr(s) || 'Document';
+    return { name: fallback, uri: _asStr(_srcUriMap[fallback]) };
+  });
+
+  const sourcesHtml = sourcesArr.length
     ? `<div class="sources-row">
-        ${data.sources.map(s => {
-          const uri = (data.source_uris || {})[s] || '';
-          const href = uri ? `/api/download?uri=${encodeURIComponent(uri)}` : '#';
-          const tgt  = uri ? ' target="_blank"' : '';
-          return `<a class="source-chip" href="${href}"${tgt} title="Download ${escHtml(s)}">📄 ${escHtml(s)}</a>`;
+        ${sourcesArr.map(s => {
+          const name = String(s.name || 'Document');
+          const uri  = String(s.uri  || '');
+          // Prefer ?uri= when we have a gs:// URI — the GCS download path
+          // is what the local-index flow needs (no Drive/Vertex round-trip).
+          // Fall back to ?title= for the legacy Drive lookup.
+          const href = uri.startsWith('gs://')
+            ? `/api/download?uri=${encodeURIComponent(uri)}`
+            : `/api/download?title=${encodeURIComponent(name)}`;
+          const tip  = `Download ${name}`;
+          return `<a class="source-chip" href="${href}" target="_blank" title="${escHtml(tip)}">📄 ${escHtml(name)}</a>`;
         }).join('')}
        </div>`
     : '';
