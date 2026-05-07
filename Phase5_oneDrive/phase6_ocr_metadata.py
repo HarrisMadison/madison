@@ -205,10 +205,60 @@ _OCR_DISABLED = False
 _OCR_DISABLED_REASON = ""
 
 
-def ocr_pdf_gcs(gcs_uri: str, project_id: str, location: str = "us") -> str | None:
+# OCR result cache: stored in the same GCS bucket under a separate prefix
+# so each scanned PDF only gets sent through Document AI ONCE -- ever.
+# Before paying Document AI to OCR a scan, we check if a cache entry exists
+# AND is newer than the source PDF. If yes, read text from cache (free).
+# If no, run OCR and write the result to cache.
+OCR_CACHE_PREFIX = "ocr-cache/"
+
+def _ocr_cache_path(gcs_uri: str) -> str:
+    """Convert a source GCS URI into the corresponding cache blob path.
+    gs://bucket/onedrive-mirror/foo/bar.pdf -> ocr-cache/onedrive-mirror/foo/bar.pdf.txt
+    """
+    # Strip 'gs://bucket/' prefix
+    rest = gcs_uri.split("/", 3)[-1] if gcs_uri.startswith("gs://") else gcs_uri
+    return OCR_CACHE_PREFIX + rest + ".txt"
+
+
+def _read_ocr_cache(bucket, source_blob_name: str, source_updated, gcs_uri: str) -> str | None:
+    """Return cached OCR text if cache exists AND is newer than source. Else None."""
+    try:
+        cache_blob = bucket.blob(_ocr_cache_path(gcs_uri))
+        if not cache_blob.exists():
+            return None
+        cache_blob.reload()
+        # If source PDF was modified after the cache was written, invalidate cache.
+        if source_updated and cache_blob.updated and source_updated > cache_blob.updated:
+            log.debug(f"  OCR cache stale for {source_blob_name} (source newer); will re-OCR")
+            return None
+        text = cache_blob.download_as_text()
+        log.info(f"  OCR cache HIT: {len(text)} chars for {source_blob_name.split('/')[-1]} (no API call)")
+        return text
+    except Exception as e:
+        log.debug(f"  OCR cache read failed for {source_blob_name}: {e}")
+        return None
+
+
+def _write_ocr_cache(bucket, gcs_uri: str, text: str) -> None:
+    """Store OCR'd text alongside the bucket so we never re-pay for the same scan."""
+    try:
+        cache_blob = bucket.blob(_ocr_cache_path(gcs_uri))
+        cache_blob.upload_from_string(text, content_type="text/plain; charset=utf-8")
+        log.debug(f"  OCR cache WRITE: {len(text)} chars -> {cache_blob.name}")
+    except Exception as e:
+        log.warning(f"  Could not write OCR cache for {gcs_uri}: {e}")
+
+
+def ocr_pdf_gcs(gcs_uri: str, project_id: str, location: str = "us",
+                bucket=None, source_blob_name: str = "", source_updated=None) -> str | None:
     """
     Run Google Document AI OCR on a GCS-hosted PDF.
     Returns extracted text or None if Document AI is unavailable.
+
+    Caches results in gs://<bucket>/ocr-cache/ so each scan is OCR'd ONCE
+    forever (until the source PDF changes). Subsequent calls read from
+    cache for free.
 
     Setup required (one-time):
       1. Enable Document AI API in GCP console
@@ -218,6 +268,7 @@ def ocr_pdf_gcs(gcs_uri: str, project_id: str, location: str = "us") -> str | No
       4. Grant the service account 'roles/documentai.apiUser'
 
     Cost: ~$1.50 per 1,000 pages. A 400-doc library at ~15 pages avg = ~$9 total.
+    With caching, repeat-syncs cost $0.
     """
     global _OCR_DISABLED, _OCR_DISABLED_REASON
 
@@ -225,6 +276,12 @@ def ocr_pdf_gcs(gcs_uri: str, project_id: str, location: str = "us") -> str | No
     # OCR is unavailable for the rest of this run.
     if _OCR_DISABLED:
         return None
+
+    # ── Cache lookup BEFORE calling Document AI ───────────────────────────
+    if bucket is not None:
+        cached = _read_ocr_cache(bucket, source_blob_name, source_updated, gcs_uri)
+        if cached is not None:
+            return cached
 
     processor_id = os.environ.get("DOCAI_PROCESSOR_ID", "")
     if not processor_id:
@@ -257,6 +314,9 @@ def ocr_pdf_gcs(gcs_uri: str, project_id: str, location: str = "us") -> str | No
         result = client.process_document(request=request)
         text   = result.document.text
         log.info(f"  OCR: extracted {len(text)} chars from {gcs_uri.split('/')[-1]}")
+        # Save to cache so future syncs don't re-pay for this scan
+        if bucket is not None and text:
+            _write_ocr_cache(bucket, gcs_uri, text)
         return text
 
     except ImportError:

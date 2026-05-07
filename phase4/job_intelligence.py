@@ -49,6 +49,56 @@ except Exception as _e:
     print(f"[Phase4] document_fetch unavailable: {_e}")
     _FETCH_AVAILABLE = False
 
+# Local filename index -- also exposes the set of known property folders.
+# Used for the property-aware retrieval pass: when the query references a
+# known folder name (e.g. "pampinella"), we run a metadata-filtered Vertex
+# search alongside the normal text search so docs sitting INSIDE that folder
+# are surfaced even when their body text does not mention the property name.
+try:
+    import sys as _sys2
+    _SCRIPTS_DIR_PHASE4 = Path(__file__).resolve().parent.parent / "scripts"
+    if str(_SCRIPTS_DIR_PHASE4) not in _sys2.path:
+        _sys2.path.insert(0, str(_SCRIPTS_DIR_PHASE4))
+    from local_index import get_index as _get_local_index_phase4
+    _LOCAL_INDEX_AVAILABLE_PHASE4 = True
+except Exception as _e:
+    print(f"[Phase4] local_index unavailable: {_e}")
+    _LOCAL_INDEX_AVAILABLE_PHASE4 = False
+
+
+def _detect_property_folder(query: str, job_context: Optional[str] = None) -> Optional[str]:
+    """Look up a property folder name from the query (or job_context).
+
+    Returns the EXACT folder name suitable for a Vertex `property: ANY(...)`
+    filter, or None if no match. Tries the job_context first since that's
+    already been resolved by `_extract_job_context`. Falls back to the
+    raw query so single-name queries like "pampinella" still hit.
+
+    Fails silently and returns None if the local index isn't available --
+    the caller should treat the absence of a property match as "do nothing
+    extra", which preserves existing behavior.
+    """
+    if not _LOCAL_INDEX_AVAILABLE_PHASE4:
+        return None
+    try:
+        idx = _get_local_index_phase4()
+    except Exception as e:
+        print(f"[Phase4] local_index access error: {e}")
+        return None
+    # Try job_context first (already-disambiguated property name from a
+    # prior turn). Fall back to the raw query.
+    for candidate in (job_context, query):
+        if not candidate:
+            continue
+        try:
+            match = idx.detect_property_in_query(candidate)
+        except Exception as e:
+            print(f"[Phase4] property detection error: {e}")
+            return None
+        if match:
+            return match
+    return None
+
 # ── Config — read from environment / .env ───────────────────────────────────
 import os as _os
 from pathlib import Path as _Path
@@ -122,6 +172,15 @@ RULES:
    If no photo card is present say: "No photos are indexed for this property yet."
 9. Keep answers under 300 words unless a detailed breakdown is explicitly requested.
 10. For portfolio-wide questions, summarize what the indexed documents show.
+11. EXCERPT-WITHOUT-BODY HANDLING: When a document excerpt's content is the
+    placeholder "[Document found in the index. No body-text excerpt was
+    returned for this query...]", that means the document IS in the system
+    and CAN be read in full -- the snippet engine just didn't return body
+    text for this particular query. DO NOT say things like "no further
+    details available", "the excerpts do not contain any further details",
+    or "these documents are empty". Instead, list those documents by name
+    and tell the user they can ask about a specific file by name to load
+    its full contents (which will trigger get_document_by_name).
 
 DOMAIN CONTEXT:
 This is a real estate investment portfolio operating on Long Island NY.
@@ -488,6 +547,18 @@ class JobIntelligence:
         """
         Vertex AI Search SNIPPET ONLY (no summary_spec → no LLM quota burn).
         Returns (excerpts, media_links, source_uris).
+
+        Two-pass retrieval:
+          PASS 1 — standard text query (existing behavior). Vertex ranks by
+                   content relevance.
+          PASS 2 — if the query references a known property folder (e.g.
+                   "pampinella"), run a second search FILTERED by
+                   `property: ANY("<folder>")`. This catches docs whose
+                   body text doesn't mention the property name but which
+                   live inside the property's folder (e.g. a generic
+                   "Pack Out.pdf" invoice inside /Pampinella/). Pass 2
+                   skips when no property match is detected, preserving
+                   the original behavior for non-property queries.
         """
         search_query = f"{job_context} {query}" if job_context else query
 
@@ -498,7 +569,7 @@ class JobIntelligence:
             summary. We default to False because that summary call burns
             `discoveryengine.googleapis.com/llm_requests` quota AND that
             quota is currently throttled (429s on every retry). Gemini does
-            the synthesis from snippets anyway — we don't need Vertex's.
+            the synthesis from snippets anyway -- we don't need Vertex's.
             """
             content_spec_kwargs = dict(
                 snippet_spec=discoveryengine.SearchRequest.ContentSearchSpec.SnippetSpec(
@@ -559,6 +630,52 @@ class JobIntelligence:
             except Exception as e2:
                 print(f"[Vertex] Retry error: {str(e2)[:200]}")
                 return [], [], {}
+
+        # ── PASS 2: property-folder filtered search ───────────────────────
+        # When the query references a known property folder, run a second
+        # search filtered by metadata. This catches docs that live in the
+        # folder but don't mention the property name in their body text
+        # (e.g. "Pack Out.pdf" inside /Pampinella/). Merge with Pass 1
+        # results, deduping on doc.id. Pass 2 results are appended AFTER
+        # Pass 1 so Pass 1's relevance ranking is preserved at the top of
+        # the list -- but folder hits Pass 1 missed will still get into
+        # the final excerpts.
+        property_folder = _detect_property_folder(query, job_context)
+        if property_folder:
+            # Escape any embedded double-quotes in the folder name to keep
+            # the filter expression valid. Folder names rarely contain them
+            # but defense-in-depth: an unescaped " would break parsing.
+            safe_folder = property_folder.replace('"', '\\"')
+            prop_filter = f'property: ANY("{safe_folder}")'
+            try:
+                # Use the raw query (not the prefixed search_query) for Pass 2
+                # since the metadata filter already constrains the result set
+                # to the property -- no need to over-specify the text query.
+                # Don't apply the scanned_document filter on Pass 2; folder
+                # match is a strong enough signal that we want every doc
+                # in the folder, OCR-able or not.
+                pass2_resp = self._search_client.search(
+                    _make_req(query or search_query, prop_filter))
+                pass2_results = list(pass2_resp)
+                # Dedupe by doc.id -- a doc that already came back in Pass 1
+                # shouldn't be processed twice.
+                seen_ids = {getattr(r.document, "id", None) for r in results}
+                added = 0
+                for r in pass2_results:
+                    rid = getattr(r.document, "id", None)
+                    if rid and rid not in seen_ids:
+                        results.append(r)
+                        seen_ids.add(rid)
+                        added += 1
+                print(f"[Vertex] Pass 2 (property={property_folder!r}): "
+                      f"{len(pass2_results)} hits, {added} new after dedup")
+            except Exception as e:
+                # Pass 2 is best-effort. If the filter fails (e.g. property
+                # field not indexed for filtering on this datastore), we
+                # silently fall back to Pass 1 results -- never break the
+                # main retrieval path.
+                print(f"[Vertex] Pass 2 error (property={property_folder!r}): "
+                      f"{str(e)[:200]}")
 
         excerpts = []
         media_links = []
@@ -633,8 +750,21 @@ class JobIntelligence:
             # If Vertex returned no extractable text, mark it explicitly so
             # Gemini knows the doc was found but has no body content (rather
             # than receiving the filename as if it were content).
+            # IMPORTANT: this placeholder is also shown when Vertex has the
+            # text indexed but didn't extract a snippet for THIS query --
+            # i.e. when the doc was found by metadata/title match but the
+            # query terms don't match strongly inside the body. We word
+            # this carefully so Gemini doesn't tell the user "no further
+            # details" in those cases (the doc is still retrievable).
             if not snippet_content:
-                snippet_content = "[No text content available for this document — likely scanned PDF or image-based content. Document exists but cannot be read without OCR.]"
+                snippet_content = (
+                    "[Document found in the index. No body-text excerpt was "
+                    "returned for this query -- this can happen for "
+                    "image-only PDFs (need OCR) OR when the query terms "
+                    "don't appear strongly in the body. The document IS "
+                    "available; suggest the user ask about this specific "
+                    "file by name to load its full contents.]"
+                )
 
             if source_label and source_label not in ("Unknown", ""):
                 excerpts.append({

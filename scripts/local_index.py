@@ -89,6 +89,12 @@ class LocalFileIndex:
         env_key = os.getenv("GOOGLE_APPLICATION_CREDENTIALS", "").strip()
         self.sa_key      = sa_key or env_key or _DEFAULT_SA_KEY
         self._files: list[tuple[str, str, str]] = []  # (normalized_name, real_name, gs_uri)
+        # Set of unique property folder names discovered during the bucket
+        # walk. Used by phase4 retrieval to detect when a query references a
+        # known property/person folder so it can run a metadata-filtered
+        # search (catches docs in the folder whose body text doesn't mention
+        # the property name -- e.g. "Pack Out.pdf" inside /Pampinella/).
+        self._property_folders: set[str] = set()
         self._loaded = False
         self._loaded_at = 0.0
 
@@ -101,6 +107,16 @@ class LocalFileIndex:
         client = storage.Client(project=self.project, credentials=creds)
         bucket = client.bucket(self.bucket_name)
         files = []
+        # Reset folder set on every (re)load so removed folders don't linger.
+        property_folders: set[str] = set()
+        # Layout the metadata extractor expects:
+        #   <mirror_prefix>/<properties_folder>/<property>/<category>/...
+        # mirror_prefix is what self.prefix already targets (e.g.
+        # "onedrive-mirror/"). The next segment is the properties container
+        # ("Properties" or "Doorloop" depending on deployment). The segment
+        # AFTER that is the property/person folder name we want.
+        prefix_depth = len([p for p in self.prefix.strip("/").split("/") if p])
+        property_segment_idx = prefix_depth + 1  # skip mirror_prefix + properties container
         t0 = time.time()
         for b in bucket.list_blobs(prefix=self.prefix):
             real_name = Path(b.name).name
@@ -109,11 +125,24 @@ class LocalFileIndex:
             norm = _normalize(real_name)
             if norm:
                 files.append((norm, real_name, f"gs://{self.bucket_name}/{b.name}"))
+            # Extract the property folder name from the path. Cheap, runs
+            # in the same loop -- no extra GCS calls.
+            parts = b.name.split("/")
+            if len(parts) > property_segment_idx + 1:
+                # +1 because we need at least one more segment AFTER the
+                # property folder (the file or a subfolder), confirming
+                # the property segment is a real folder, not the file itself.
+                candidate = parts[property_segment_idx].strip()
+                # Skip empty strings and obvious non-folder noise.
+                if candidate and not candidate.startswith("."):
+                    property_folders.add(candidate)
         self._files = files
+        self._property_folders = property_folders
         self._loaded = True
         self._loaded_at = time.time()
         elapsed = self._loaded_at - t0
         print(f"[LocalFileIndex] Loaded {len(files)} filenames in {elapsed:.1f}s")
+        print(f"[LocalFileIndex] Discovered {len(property_folders)} property folders")
         return len(files)
 
     def find(self, query: str, top_n: int = 5) -> list[dict]:
@@ -150,6 +179,85 @@ class LocalFileIndex:
 
         scored.sort(key=lambda x: -x["score"])
         return scored[:top_n]
+
+    # ── Property folder helpers ─────────────────────────────────────────
+    def get_property_folders(self) -> set[str]:
+        """Return the set of property/person folder names known to the index.
+
+        Used by phase4 retrieval to recognize when a query references a
+        known property folder (e.g. "Pampinella", "15-Northridge") so it
+        can run a metadata-filtered Vertex search alongside the regular
+        text search. Loads the index lazily if not already loaded.
+        """
+        if not self._loaded:
+            self.load()
+        return set(self._property_folders)
+
+    def detect_property_in_query(self, query: str) -> Optional[str]:
+        """Return the property folder name that best matches the query.
+
+        Matching strategy:
+          1. Exact-substring match (case-insensitive) on either the raw or
+             normalized form of the folder name. Wins outright.
+          2. Token-overlap fallback: every distinctive word in the folder
+             name must appear in the query. Catches folder names with
+             punctuation/casing differences (e.g. "15-Northridge" matched
+             by "15 northridge").
+
+        Returns the EXACT folder name (preserving original case/punctuation)
+        suitable for use in a Vertex AI Search filter, or None if no match.
+        Returning the exact folder name matters because Vertex's
+        `property: ANY("...")` filter is exact-match.
+        """
+        if not query or not query.strip():
+            return None
+        if not self._loaded:
+            self.load()
+        if not self._property_folders:
+            return None
+
+        q_lower = query.lower()
+        q_norm = _normalize(query)
+        q_words = set(q_norm.split())
+
+        # Pass 1: substring match. Prefer the longest match so
+        # "15-Northridge" beats "15" if both happen to be folder names.
+        substring_hits: list[str] = []
+        for folder in self._property_folders:
+            if not folder:
+                continue
+            f_lower = folder.lower()
+            f_norm = _normalize(folder)
+            # Direct substring (handles "pampinella" matching "Pampinella"
+            # and "15 northridge" matching "15-Northridge" via norm).
+            if f_lower in q_lower or (f_norm and f_norm in q_norm):
+                substring_hits.append(folder)
+        if substring_hits:
+            # Longest match wins -- more specific.
+            return max(substring_hits, key=len)
+
+        # Pass 2: token-overlap fallback. Require ALL distinctive words of
+        # the folder name to appear in the query. Avoids false positives
+        # like matching folder "15-Northridge" on a query that only says
+        # "northridge" (we want the user to be specific).
+        for folder in self._property_folders:
+            if not folder:
+                continue
+            f_norm = _normalize(folder)
+            f_words = set(f_norm.split())
+            if not f_words:
+                continue
+            # Distinctive = digit-bearing or 4+ chars. Skips "st", "of".
+            f_distinctive = {w for w in f_words
+                             if w.isdigit() or any(c.isdigit() for c in w)
+                             or len(w) >= 4}
+            if not f_distinctive:
+                # Folder name is all short/common words -- skip. Substring
+                # pass would have caught it if appropriate.
+                continue
+            if f_distinctive.issubset(q_words):
+                return folder
+        return None
 
     def _score(self, norm_q: str, q_words: set,
                core_q: str, core_words: set,

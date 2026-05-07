@@ -555,7 +555,15 @@ def _build_and_upload_manifest(dry_run: bool, token: str = "", drive_id: str = "
             ocr_text = None
             if not extracted_text and _needs_ocr and _ocr_pdf_gcs and ext == ".pdf":
                 if _needs_ocr(blob.name, blob.size or 0):
-                    ocr_text = _ocr_pdf_gcs(uri, GCP_PROJECT_ID)
+                    # Pass bucket + source metadata so the OCR call can read/write
+                    # the gs://<bucket>/ocr-cache/ entry. This makes each scan OCR'd
+                    # exactly ONCE -- subsequent syncs read from cache for free.
+                    ocr_text = _ocr_pdf_gcs(
+                        uri, GCP_PROJECT_ID,
+                        bucket=bucket,
+                        source_blob_name=blob.name,
+                        source_updated=blob.updated,
+                    )
 
             # ── Decide which content path to ship to Vertex ────────────────────
             content_text = extracted_text or ocr_text or ""
