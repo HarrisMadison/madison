@@ -57,3 +57,6 @@ commit-fixes.ps1
 patch/
 patch2/
 patch3/
+
+# --- Local persistence sinks (event logs, accumulated runtime data) ---
+data/structured_summaries/

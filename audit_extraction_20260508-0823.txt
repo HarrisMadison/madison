@@ -1,0 +1,20 @@
+Audit run: 20260508-0823
+Bucket:    gs://madison-rag-60-rag-raw/onedrive-mirror/
+PDFs found in bucket:        21
+PDFs audited this run:       20
+Errors during audit:         0
+Elapsed:                     58s
+
+── Production tier breakdown ──
+  tier1_extracted           19  ( 95.0%)
+  tier2_ocr_cached           0  (  0.0%)
+  tier2_ocr_live             0  (  0.0%)
+  tier3_passthrough          1  (  5.0%)
+
+── Flags (cases worth a closer look) ──
+  passthrough_check_filename                 1  (  5.0%)
+
+── Recommendation hints ──
+  - Tier 1 extraction is doing most of the work. Pipeline is healthy.
+
+Full per-file breakdown: audit_extraction_20260508-0823.csv

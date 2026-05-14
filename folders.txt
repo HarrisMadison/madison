@@ -1,0 +1,1352 @@
+-701 Windmill Ave-MIT - 701 Windmill Ave
+0122-0001EWM - 1117 Aron Pl
+0122-0002EWM - 22 Southwood Cir
+0122-0011REB - 125 Sherwood Ave
+0122-0014EFM - 65 Wall St
+0122-0018REB - 54 Schneider Ln
+0123-0001EWM - 24 Hickory St
+0123-0002CAT3 - 28 Burling Ln S
+0123-0007Asb - 7 Miami Pl
+0123-0009PO - 1A Gerald Ln
+0123-0011PO - 2 Chuck Ct
+0123-0014REB - 119 Sportsmans Ave
+0123-0015EWM - 425 Clearmeadow Dr
+0123-0019EWM - 44 Bradbury Ave
+0123-0023EPB - 12 Windward Ln
+0123-0030EWM - 109-100 196th St
+0123-0031PO - 64 The Blvd
+0123-0032REB - 64 The Blvd
+0124-0009CAT3 - 72 17th St
+0222-0026REB - 35 Skipper Dr
+0222-0030ESD - 2429 7th St
+0222-0031CAT3 - 18 Vanderbilt Way
+0222-0041ESD - 20 Sylvia Cir
+0222-0045EPB - 26 Kameo Dr
+0223-0039REB - 681 N Alleghany Ave
+0223-0042CC - 1A Gerald Ln
+0223-0044EWM - 80 Franklin Ave
+0223-0050CAT3 - 38 Jerold St
+0322-0047REB - 45 Old Orchard Rd
+0322-0050ESD - 317 Wythe Ave
+0322-0052REB - 25 3rd Ave
+0322-0054REB - 37 Norton Dr
+0322-0055EWM - 240 Muncy Ave
+0322-0057EPB - 339 Riviera Pkwy
+0322-0058EFM - 39 Homestead Dr
+0322-0060REB - 333 Broadway
+0322-0063EWM - 15 Lowell Dr
+0322-0064EFM - 757 Jackson Ave
+0322-0065EPB - 131 Miller Ave
+0323-0059EPB - 1190 Stewart Ave
+0323-0060PO - 533 N Monroe Ave
+0323-0064CON - 32 Easton St
+0323-0065CAT3 - 300 Ribbon St
+0323-0069REB - 2164 Grove St
+0323-0070BU - 47 Marshall Dr
+0324-0109EWM - 143 Poplar St
+0324-0112REB - 239 W 9th St
+0324-0117EPB - 26 Walnut St
+0324-0119STOW - 26 Walnut St
+0324-0120SC - 26 Walnut St
+0324-0121CC - 26 Walnut St
+0324-0123TXL - 26 Walnut St
+0324-0124CON - 26 Walnut St
+0324-0153REB - 2279 Oxford St
+0422-0068MLD - 15 Scott Ave
+0422-0074PO - 240 Muncy Ave
+0422-0078EWM - 83 Snowberry Ln
+0422-0081PO - 83 Snowberry Ln
+0422-0082REB - 757 Jackson Ave
+0422-0083EWM - 5 Overhill Dr
+0422-0085EWM - 36 Owens St
+0422-0088EWM - 8 Valerie Pl
+0422-0089REB - 8 Valerie Pl
+0422-0092REB - 36 Owens St
+0422-0093REB - 83 Snowberry Ln
+0422-0094REB - 5 Overhill Dr
+0422-0095EPB - 26 Lakeview Ave
+0422-0097PO - 36 Owens St
+0423-0073REB - 164 Bellmore St
+0423-0075PO - 164 Bellmore St
+0423-0080CAT3 - 357 Walton St
+0424-0199SC - Apple St
+0522-0099EWM - 85 W Marshall St
+0522-0100REB - 181 Elm St
+0522-0101EWM - 181 Elm St
+0522-0103REB - 462 Cold Spring Rd
+0522-0104EFM - 33 Twin Ln N
+0522-0106REB - 243 42nd St
+0522-0107ESD - 82 Inlet Dr
+0522-0108EWM - 18 Horizon Ct
+0522-0109ESD - 225 W 17th St
+0522-0110REB - 18 Horizon Ct
+0522-0111REB - 18 Timber Ridge Dr
+0522-0114PO - 18 Horizon Ct
+0522-0119VAN - 1203 August Rd
+0522-0122REB - 59 S 25th St
+0522-0126CAT3 - 745 Nicolls Rd
+0523-0087PO - 26 Underhill Ave
+0523-0088PB - 26 Underhill Ave
+0523-0089REB - 26 Underhill Ave
+0523-0091REB - 752 Windmill Ave
+0524-0211CAT3 - 105 Finucane Pl
+0621-0004WTR - 870 Roxbury Dr
+0622-0128REB - 135 Connecticut Ave
+0622-0130Asb - 27 Roosevelt Ave
+0622-0132EWM - 1973 Lincoln Ave
+0622-0138PO - 14 Pleasant Pl
+0622-0143EPB - 95 Prairie Dr
+0623-0092CON - 164 Bellmore St
+0623-0093REB - 425 Clearmeadow Dr
+0623-0095EWM - E 4th St
+0623-0098REB - 12 Woodward Pkwy
+0624-0217REB - 105 Finucane Pl
+0721-0027WTR - 253 Ivy St
+0721-0028MLD - 58 Vanderbilt Pkwy
+0721-0029Asb - 106-40 79th St
+0721-0032WTR - 51 Tokeneke Rd
+0721-0038REB - 90 Madison Ave
+0721-0046EFM - 9 2nd St
+0721-0047CC - 9 2nd St
+0721-0048REB - 9 2nd St
+0721-0054REB - 169 Parkwood St
+0721-0057PB - 8 Webster Ave
+0721-0058REB - 8 Webster Ave
+0721-0059EWM - 787 Salem Rd
+0722-0147MLD - 1226 Brookdale Ave
+0722-0152EWM - 36 Owens St
+0722-0155REB - 42 Bristol Dr
+0723-0104EWM - 629 Old Town Rd
+0723-0107EWM - 3000 Clubhouse Rd
+0724-0230EWM - 84 Cheltenham Rd
+0724-0231EWM - 84 Cheltenham Rd
+0724-0232REB - 84 Cheltenham Rd
+0724-0233POPB - 84 Cheltenham Rd
+0724-0234CC - 84 Cheltenham Rd
+0821-0062REB - 481 N Wellwood Ave
+0821-0063EWM - 8 Webster Ave
+0821-0069CAT3 - 51 Newton Ave
+0821-0071REB - 68 Port Ave
+0821-0080REB - 297 Long Island Ave
+0821-0081REB - 595 NY-25A
+0821-0083ESD - 274 Terry Rd
+0821-0084EWM - 18 Linden Ln
+0821-0086MLD - 95 New York Ave
+0822-0156REB - 27 Roosevelt Ave
+0822-0157MLD - 3 Holdsworth Dr
+0822-0158REB - 1973 Lincoln Ave
+0822-0159REB - 745 Nicolls Rd
+0822-0163REB - 3 Holdsworth Dr
+0822-0164EWM - 14 Exeter Ave
+0823-0116EWM - 4 Oxford Rd
+0823-0118EWM - 3 Kenlloyd Ct
+0823-0119EWM - 16 Laurel Ln
+0823-0121REB - 78 Ridge Rd
+0823-0126POPB - 2483 Leslie Ln
+0823-0127REB - 2483 Leslie Ln
+0921-0087EWM - 4 Overlook Ct
+0921-0088EWM - 54-10 32nd Ave
+0921-0090REB - 159 Edgewood Ave
+0921-0094EWM - 221 5th Ave Apt. 1B
+0921-0095EWM - 48 Ethan Cir
+0921-0096MLD - 13 Cider Mill Ln
+0921-0099CAT3 - 523 Scudder Ave
+0921-0100CAT3 - 440 E 79th St
+0921-0101REB - 122 Jefferson Ave
+0921-0103MLD - 27 7th Ave S
+0921-0107EWM - 160-27 24rh Ave
+0921-0108EPB - 1313 Mockingbird Ln
+0921-0109EWM - 147 Mohawk Ave
+0922-0172EWM - 428 Harbor Rd
+0922-0173REB - 428 Harbor Rd
+0923-0132EWM - 141 Breeley Blvd
+0923-0139CC - 2483 Leslie Ln
+0923-0144CON - 158 Dovecote Ln
+0923-0145EFM - 3000 Clubhouse Rd
+0924-0275REB - 313 W 13th St
+0924-0280REB - 84 Cheltenham Rd
+1 Fox Run
+1 Powell Court
+1. Documents - forms - logs
+1. PROJECT MASTER CHECKLIST - Unknown
+1. PROJECT TRACKING - Unknown
+1. Profit & Expense Tracking (P&L'S) - Unknown
+10 Ashland Court
+1010 Jerusalem Avenue
+1012790_Vivian Shamatanga - paid & closed
+1014351_William Morrow
+1021-0111MLD - 7 Frankel Rd
+1021-0114EWM - 427 N Queens Ave
+1021-0115REB - 21 Kussoth St
+1021-0116BU - 495 Ocean Ave
+1021-0117CC - 495 Ocean Ave
+1021-0118BIO - 770 Grand Blvd
+1021-0121BIO - 8 Briar Path
+1021-0123BIO - 95 13th Ave
+1021-0125BIO - 147 Mohawk Ave
+1021-0127BIO - 91 Kane Pl
+1021-0128REB - 4 Cornell Court South
+1021-0129BIO - 44 Cedar Rd
+1021-0133BIO - 6 Barclay St
+1021-0134BIO - 763 Dogwood Ave
+1021-0135BIO - 329 Broadway Greenlawn
+1021-0137BIO - 21 Rose Ave
+1021-0139BIO - 50 Norfolk Dr W
+1021-0141BIO - 427 N Queens Ave
+1021-0142BIO - 15 Lt John A Olsen Ln
+1021-0144BIO - 244-32 136th Rd
+1021-0148BIO - 259 Madison St
+1021-0150MLD - 54 Schneider Ln
+1021-0153EWM - 71 Haynes Ave
+1021-0156EWM - 96 Elm Ave
+1022-0175EWM - 35 Cherokee Trail
+1022-0178REB - 35 Cherokee Trail
+1022-0180REB - 366 Nicolls Rd
+1022-0181EWM - 10 Forsythe Meadow Ln
+1022-0182PO - 1973 Lincoln Ave
+1022-0184REB - 22 Wilderness Rd
+1022-0186SC - 34 Hilltop Ave
+1022-0187CC - 34 Hilltop Ave
+1022-0189PO - 34 Hilltop Ave
+1022-0190MLD - 35 Cherokee Trail
+1022-0191CAT3 - 1057 Bay Shore Ave
+1022-0192ESD - 73 Ulster Ave
+1023-0151REB - 24 Underhill Ave
+1023-0152CC - 19 E 16th St
+1024240_Usman Sharif
+1026930_Matthew O’Connell - file closed
+1029578_Jeffrey Dillon
+1029741_Sharon_Thomas Daddino - File closed, no work done
+1030396_Jose Rivera
+1031758_Darwin Reyes - claim denied and closed by company
+1032872_Rafael Taveres
+1035469_Kevin Lee
+1038141_Mechell Edmonds
+1038818_Mark Terrusa
+1039094_Anthony Carpaneto
+1043163_Helene Attias - File closed
+1056609_Jerry Hackman
+1062657_Judith Martin
+1063750_Nicole_Jeremy Slatky
+1070335_Alexander Krucher
+108 Shinnecock Lane
+1082893_Howard Greenberg
+1085719_Robert Deluca
+1085924_Jacqueline (daughter Michelle) Gilbert
+1089937_Adriana Baca
+1092025_Luis Antonio Ramos Escamilla
+1092195_Dany Romero
+1093266_Dolores Gordon
+1096341_Gloria Maresca
+11 Elliot Avenue
+11 Glenridge Avenue
+11 Harrison Avenue (Y)
+11 Justin Drive
+1120270_Howard And Susan Greenberg
+1121-0160REB - 71 Haynes Ave
+1121-0164EPB - 490 Glen Cove Ave
+1121-0165EWM - 5 Maybeck Dr
+1121-0169REB - 22 Apple St
+1121-0170ESD - 10 Helen Ct
+1121-0172BIO - 39 Penney St
+1122-0198EWM - 1 Parkwood Rd
+1122-0199SC - 1 Parkwood Rd
+1122-0200CC - 1 Parkwood Rd
+1122-0201REB - 1 Parkwood Rd
+1122-0202ESD - 1057 Bay Shr Ave
+1122-0205Asb - 66 Harriet Rd
+1122-0206REB - 88 Maple Ave
+1122-0209EWM - 465 Old Farmingdale Rd
+1122-0211REB - 1057 Bay Shore Ave
+1122-0212EWM - 12 Pepper Cir S
+1122-0213BIO - 66 Harriet Rd
+1122-0215REB - 425 Clearmeadow Dr
+1122-0216PO - 22 Wilderness Rd
+1122-0217REB - 224 Pawnee Ave
+1122-0218REB - 89-31 129th
+1122-0219EWM - 24 Patton St
+1122-0220EPB - 115 Dickerson Avenue
+1122021_Athar Iqbal
+1123-0162Asb - 32 Winside Ln
+1123-0171CC - 3000 Clubhouse Rd
+1123-0173Asb - 2751 Preston Pl
+1123785_David Morales
+1130597_Victoria silversmith
+1142884_Caroline Delpiano
+121 West 21st Street
+1221-0177EFM - 32 Winter Ave
+1221-0178MLD - 13 Francis Terrace
+1221-0179REB - 67 Smith St
+1221-0180ESD - 57 Kinsella St
+1221-0183EPB - 359 Parkside Ave
+1221-0184BIO - 6 Dovecote Ln
+1221-0188MLD - 24 Corona Rd
+1221-0190ESD - 114 Horton St
+1222-0222ESD - 11 Highland Down
+1222-0223CAT3 - 71 Green Ave
+1222-0224EWM - 115 Dickerson Avenue
+1222-0225MLD - 115 Dickerson Avenue
+1222-0226Asb - 115 Dickerson Avenue
+1222-0227CC - 194 Parkside Dr
+1222-0228REB - 194 Parkside Dr
+1222-0229REB - 71 Green Ave
+1222-0230EPB - 150 N 26th St
+1222-0231CAT3 - 34 poplar ave
+1222-0232CAT3 - 1A Gerald Ln
+1222-0233REB - 24 Patton St
+1222-0234Asb - 24 Patton St
+1222-0235ESD - 125 Millet St N
+1222-0236REB - 224-24 Fairbury Ave
+1222-0237PO - 34 poplar ave
+1222-0238REB - 34 poplar ave
+1222-0239PO - 24 Patton St
+1222-0240PO - 125 Millet St N
+1223-0178Asb - 11-31 McBride St
+1223-0180EWM - 3833 Brooklyn Ave
+1223-0181REB - 5 Warrenton Ct
+1223-0182POPB - 5 Warrenton Ct
+1223-0183POPB - 3833 Brooklyn Ave
+1223-0184REB - 3833 Brooklyn Ave
+131 Robinwood Drive
+134 Hounslow Road
+15 Northridge Drive
+1620 Old Cedar Swamp Advert Photos
+1620 Old Cedar Swamp Rd
+1620 Old Cedar Swamp Road
+168 Moriches Avenue
+17 Court Street
+17 Windmill Lane
+17 Windmill Updated Pictures
+173 Thunder Road
+1A Gerald Lane
+2 Ashwood Drive
+2. Homedoc Resto Jobs
+2021_03_12
+2023 Collection List
+2024 AP
+204 Old Country Road
+209 Jamaica ARGO boiler Fire Claim - 209 Jamaica Avenue
+209 Jamaica Avenue
+21 Rustic Road
+217 Alexander Avenue
+221 Center Street
+224 Pawnee Avenue (New Kitchen Non-Insurance Job)
+231 Woodside Avenue (Investor-owned Matt) Not a Bob Job
+237 Adams Avenue
+24 Newtown Avenue
+243 Jefferson Street
+253 East Hoffman
+253 East Hoffman Ave
+26 Wells Place
+27 Manor Drive
+27 Neptune Avenue
+270 Airport Plaza blvd
+275 Monroe Drive
+276 West 22nd Street
+2808 John Roe Smith Ave - 2808 John Roe Smith Ave
+29 Gladstone Avenue
+3 Texas Street
+3.  W9's signed & dated
+32 Easton Street
+338 Waverly Ave
+35 Venetian Promenade
+362 Mooney Pond Rd
+37 Brookside Avenue
+38 Yacht Club Road
+4 Pear Court
+4. Spreadsheets - Documents
+41 Lovell Road
+42 Frederick Street
+43 Carver Boulevard
+437 Raft Avenue
+45 Lama Drive
+47 Marshall Drive
+48 Rustic Avenue
+5 Shearwater Way LLC
+50 Richie Court
+50 TEED STREET
+52 Smith Street
+526 Birch Hollow Drive
+53 Bellemeade Avenue
+53 Presford Drive
+55 Beach lane - 55 Beach Ln
+55 Spring Street
+57 Jeanatta Avenue
+57 Middle Island Ave
+57 Middle Island Avenue
+57 Middle Island Medford
+59 Abbot Lane
+59 Whittier Drive
+6 Harriet Street
+6 Wittridge Road
+613 Bourdois
+613 Bourdois Avenue
+63 Washington
+65 Center St
+65 Federal Homeowners
+65 Federal Ln
+66 Cocoanut Street
+67 Moriches Road LLC
+674 North Richmond Avenue
+70 44th Street
+71 Lombardy Drive
+723 5th Street
+75 Casement Avenue
+79C Traction Boulevard
+8 Kilroy Drive
+80 Franklin Avenue
+80 Reade Avenue
+805 Bridge Heloc Info and title
+805 Bridge St
+82 Caramel Road
+879360_Winsome Fearon - Green
+88 Rugby Drive West
+89 Dollard Drive
+892899_Ivor Hill. _ Fire 3 Story _ Fred
+894571_Carla Nardia leveridge
+895446_Eloise Ward - paid & closed
+896400_Diane & Marvin Walters
+896432_Thomas Quinn
+896606_Brian Parise
+897288_Saikat Sinha - paid & closed
+899693_Abu Ahmed - collections
+899713_Alexandra Leal - collections
+9 Andover Drive
+9 Hamilton Place
+900227_Gil sheen Chadha - file closed
+900711_Phyllis & (Son Joseph )Pasquino Closed as per Bob. Client too hostile 6_4_21
+903214_Tyrese Wilder Washington _ & Son Freddy
+905143_Harry Montgomery - paid & closed
+911681_Charles A Dalmedo
+911746_Maria Tumminello
+916379_Kevin Pihlkar
+916385_Kamil Horvath
+916396_Forclosure Jeanette
+916403_Alma
+916405_Sue and John Pihlkar - closed - no claim filed
+916417_Una Mcnichol
+916430_MAC
+916436_Apartment
+916437_Shaun Woolford
+916599_Home
+916600_Robert _ Home remodel
+916601_Ida Dangelo
+916611_Princess Newman
+916612_Wendy Chiarello
+916614_Regina + Harold Donegan
+916623_Home
+916624_Home
+916625_Home
+916629_BIRKMIER
+916631_Ricky
+916633_Johnson
+916636_Johnson Packing
+916641_Johnson job central Islip Demolition
+916644_Kush
+916645_Itza Job
+916648_Bob's House
+916649_Glenford
+916651_Glenford Things To Buy
+916652_Lewis Job
+916654_Thomas Lincoln Job
+916658_Louvenia Leach Job
+916693_Glenn
+916702_Marie Chenet
+916703_Victor Leal 1
+916711_Brenda Branch
+916714_Hugh Maxwell
+916715_Hazel Thompson
+916722_Far Rockaway
+916729_Joseph Cohens
+916732_Angela James
+916736_Leonora Collins
+916746_Charles Mitchell
+916751_Shelley Johnson
+916755_Kamil Horvath
+916757_Louis - claim paid & closed
+916764_Apartment
+916765_Carol Barry
+916767_Victor Leal
+916770_Hazel Thompson Rebuild
+916771_Glen Manzanares Rebuild
+916772_Fay
+916777_Masterson
+916785_Publio Silfa
+916786_Helene Baymack
+916787_D'Angelo
+916798_Dawn D'angelo
+916804_Laura Braider
+916805_Collins
+916806_Lolymary
+916809_David Spector
+916812_Walner Talleyrand
+916814_Sandra James
+916816_Yvette McCray
+916817_Chenne Bailey
+916819_Byron Voutsinas
+916821_Henry Leonidas
+916822_Brandy Bode - claim closed - not filed
+916823_Jacqueline Shouder 1 of 2
+916826_Cedric Miller
+916827_Jacqueline Shouder 2 of 2
+916828_Cleve Dwyer
+916829_Joseph DiCicco
+916831_Paul St.Juste
+916832_Angela White
+916833_Adriana Robinson
+916836_Roy Clark
+916837_Joseph Dicicco
+916840_Beatrice Pierre Louis - claim closed
+916842_Winsome Burnett
+916844_Nagpal Gagan
+916851_Robert Chiarello
+916854_Nelson Diaz
+916857_Lauren Cutler
+916858_Carlene Comrie
+916860_Princess Purcell
+916865_Marlene Anderson
+916867_Jose Herrera
+916869_Byron Edwards
+916871_Marcelin Jean
+916872_Steven & Matilda Sapia
+916873_Annette Michael - Claim closed, file completed - exported t pdf
+916874_Maria Depalma - Water Damage - claim closed 6_9_21
+916877_Maria DePalma - Puffback - claim closed 6_9_21
+916880_Scimone LIc
+916882_Alex Turenne
+916884_Patricia M. Medrano - Caldwell - file closed
+916886_Joseph G. Pitti
+916887_Kristina Bishai
+916888_Joseph G. Pitti
+916889_Dion Brower
+916890_Home
+916893_Anthony Roros
+916896_Martine Dezalon - file closed
+916898_Theresa Hamilton
+916899_Mansoon Quraishi
+916901_Linda & Wayne LaDicicco - claim closed 6_9_21
+916904_Fortis Realty Group Inc. Mica Storm damage tree Hit roof
+916905_James Patric
+916908_Jacqueline Jackson
+916909_Wardell Joseph - paid & closed
+916910_Joseph Dicicco (2)
+916911_Audrey McLean
+916912_Brittany Mclean
+916913_Dion And Pia Brower
+916914_Dion Brower
+916918_James And Michelina Marra
+916920_Forclosure 57 Middle Island Ave., Medford Colleen
+916925_Forclosure Jerry Reszke
+916927_Home
+916931_Sylvia And Marjorie Caddle
+916932_Josephine Gantt-- CLAIM CLOSED -- 8-1-21
+916934_Home
+916937_Erith Davis And Walston Davis
+916938_Angella Dawkins - Paid & closed
+916939_Dora Roberson
+916940_Brian And Vanessa Chapman
+916941_Ramdulary Keahmally $250 Deductable
+916942_Geddis & Stacey Lewis
+916943_Joseph C DePalma
+916944_Ash Whole Holding Corp
+916946_Jasmine Myrick
+916947_Edith Stinson - claim paid & closed
+916948_Nick Voutsinos_ Frank Gomez
+916949_Barbara E Malone
+916950_Labon - claim paid & closed
+916951_Bessie Harvey
+916953_Harry and Danielle Jos
+916957_Ryan Kelly _ Heath Ryan
+916958_Carl
+916959_Robert & Eileen Austin
+916961_Crestwood Manor( Steve Squitiro)
+916963_Michael Croce--- Dead Deal At The Moment
+916964_Joseph and Jeanette Connors
+916967_Diane Jones - claim paid & closed
+916968_Liliana Lopez----- Dead Deal At This Moment
+916969_Eileen Austin
+916971_Zenonum Macygin - claim paid and closed
+916972_William C Asher Jr
+916974_Karleshia Quinn
+916975_Vito Giambanco
+916977_Janice McQuaige - claim paid & file closed
+916978_Michelle Collier
+916979_Bill Deak
+916980_Lois Johnson
+916981_Alfreda Chaplain - File closed 5_11_21 per RVF
+916982_Alcolade LLC
+916983_Wayne Cebollero
+916985_Sean Caruso
+916987_Salvatore J. Gigante
+916989_Frank Peretti _ Reco Liggotti
+916991_Brent Tiringer
+916992_Jeremy Cohen
+916993_Dorri & Richard C Vetere
+916994_The Piermont #1 - Claim closed, no coverage
+916995_Rohan Artwell - Claim completed May 2020, closed 6_8_21 - RVF
+916996_Andrew & Erin Affa - Refund issued - claim closed 6_8_21 RVF
+916997_Steven Squitiro
+916999_Nicole And Jeramy Slatky
+917001_Paul Riedel - paid & closed
+917002_Ralph Perone - file closed
+917003_Tara Shea
+917004_Jennifer Vasquez - File Closed - 5_14_21 - RVF
+917005_William Wright _ Anthony Mazza - claim paid and closed
+917006_Chris Kujawski - Calim Closed per BC
+917008_Briggette Baranello-- CLAIM CLOSED
+917009_James Mauro- DEAD JOB
+917010_Frank Gigante
+917011_Tiara Tomaso - file closed
+917012_Peter And Christina Zaccagnino - file closed
+917014_Lorna Able
+917016_Jody And Timothy Morrisey - File Closed - RVF
+917017_Louise Giarraputo _ Vincent Frigano ( Don In Law)
+917018_Mary Ehlers
+917019_Dwayne Branch
+917021_James Horan
+917023_Beatrice Rimland
+917024_Ophelia R Dunn - Barcia
+917026_Andrew Cunha - claim paid and closed 6_9_21
+917028_Frederick Domond
+917031_Aaron Parker
+917032_Michael Gallo
+917033_Keith And Donna Newell
+917034_Rita Wild - File closed 5_10_21 per BC
+917035_Davide Gentile - No Claim - File Closed
+917039_Michael Douglas
+917040_Nancy & Ken Stinson-Hall - claim paid and closed
+917041_Nissagine Deltor -- Claim Closed -
+917044_Angelina & Jean Darbouze - claim paid & file closed 6_9_21
+917046_Giustina Capuano
+917047_Anthony Coppola
+917048_Linda Andrew Dussel - partial payment - closed see notes
+917049_Howard Frampton
+917053_Estate Of Patricia L Marcoux
+917054_Dmitry Kievsky
+917055_Cathy Randolph
+917056_Patricia Davenport- Final [payment received- Claim closed
+917057_Dominik And Adrienne Delio
+917058_Brad Lindell - File Closed per BC
+917059_All State Consultants Inc
+917061_Sharlisa Walker
+917064_Veda Simmons - File Closed - Paid in Full per RVF
+917065_Ginette Metelus
+917066_Bonnie Holman - paid & closed
+917068_Elizabeth Ticora - File Closed - 5_14_21 - RVF
+917069_Vincent Muhammed
+917070_Keith Pellegrino - File Closed 4_23_21
+917073_Kreg Blanchard-claim completed and closed 8_20_20
+917074_Sophia Kaltsas - 5_11_21 File closed per BC
+917076_Stephen Lund
+917077_Marie _ Andre Germain
+917078_Vivas Martin - claim paid & file closed
+917079_Dora Johnson & Carmen Johnson - File Closed - Dead Deal
+917080_Chris Daversa _ Tara Grander
+917082_Scott Tillman
+917083_Meifeng Chen - 109 Thais A Resturant INC Closed 6_3_21 SCR
+917084_Joyce Clarke Closed 6_3_21
+917085_Boby Varghese - File closed 5_6_21 per Bob & Russ
+917086_Azan Akaloo - Paid & closed
+917087_Eugene Marsh
+917088_Marc Cimmino - close file, no claim per Mike 6_8_21
+917089_Labon #2 - claim paid & closed
+917090_Shaun _Sara O'Reilly - File closed 5_14_21 per BC
+917091_David Taylor---------- Filed Depreciation 7-29-21
+917092_Laurie and Eric Ornstein - File closed 5_11_21 by RVF, paid in full
+917093_Alida E Martinez Pareses
+917094_Frances Barnhill
+917095_The Piermont claim closed - no coverage
+917096_Charles Teufel---CLAIM CLOSED
+917097_Stacey Antos - File closed 6_3_21 - RVF - SCR
+917100_Jonathan Pokorny
+917102_Denise Johnson - claim paid and closed
+917103_Isolina Lizarraga - file closed
+917104_Gracie L Walker--closed
+917106_Margie Freeman - File Closed - 5_14_21 - RVF_Donna
+917109_Anthony Fortunato-- Cell Number 631-645-4515
+917110_Anthony Legotti
+917112_Gnj Solutions Inc
+917113_Charles_Sharon Goldstein
+917114_Wilfred Wade - file closed
+917115_Matthew Norman - File paid and closed 5_27_21
+917116_Kathi Moglin - paid & closed
+917117_Rene Medrano - paid & closed
+917118_Christine A & Daughter Sara Lavalle - File paid and closed 5_27_21
+917119_Penelope A Grippo - filed with attorney
+917120_Janet Edwards----CLAIM CLOSED 8-1-21
+917121_Bruce Koskoff- Recoverable Depreciation received - Claim closes
+917123_Myrtle Sebastian _ Alvin
+917124_Brian and Lisa Strack - File Closed 5_10_21 per BC
+917125_Maurice Livingston - claim paid & file closed
+917126_Patricia Barker - close file, claim paid 10_20_20
+917127_Jen Merkle
+917128_Anthony Boni - File closed 5_14_21 per RVF
+917129_Michelle and Patrick Santangelo
+917130_Justine Williamson Saunders - File paid and closed 5_28_21
+917132_Lorenzo Curtis Junior
+917134_Susan Sassoon----- DEAD DEAL
+917135_Annette Michaels #2
+917136_Stephen Rodriguez
+917137_Lena_ William Howard
+917138_Donna HasFal
+917139_Michael Oppedisano - file closed
+917140_Joseph Waskewich Closed as per Bob 6_18_21
+917141_Christine Mazzurco - collections
+917142_Mohammed Mohair- Closed -Dead Deal
+917144_Kossi Ahouissi
+917145_Quamar Zaman--DEAD CLAIM
+917146_Kerry R Lane - File Closed per BC
+917147_Angela Terry
+917148_John Smalley
+917149_Cirillo D Tavares
+917150_Carolina Flores Martinez
+917152_Sophia Kaltsas #2
+917153_John & Dara Casselli
+92 Cranford Blvd
+921492_Thomas Greco
+922965_Lyn Consolmagno- claim paid and closed 6_9_21
+923490_Sharon Southard
+923495_Raquel Cantu
+923506_Karen Maxwell & Joseph Messina
+923516_Milton Severino Marsev Opportunity LLC
+925007_Brian Smith
+925428_Lee & Cheryl Slatky
+926112_Olivia Fowora - File Closed on 5_7_21 per BC
+928322_Yasmin And Utel Bryan- CLAIM CLOSED
+930178_Joseph Santiago - paid & closed
+930262_Tanya Harris - Paid & closed
+931532_Jason Bass - close file, company denied per Mike 6_8_21
+932740_Kerry Spillman
+934483_Jennifer Roselle Cuoco
+934582_John Broglia
+937191_Count Edwards
+940383_Sharon Southard
+941341_Edward A Wagner - paid, claim closed
+942067_Maria Ray
+942802_Paula Ramirez - collections
+943078_Joyce Jos
+944738_John Giammarino
+947438_Lambrene Dimos
+947718_Thomas & Nikisha Hardy - paid & closed
+948068_Dorothy Judge
+948927_Matthew Johnson - Claim denied
+948967_Ed Serling
+950212_Walter Edwards - claim closed - withdrawn by client
+950492_Steven Feldman
+950632_Gary Saporta
+951624_Daniel Ackerson
+952495_Earnest & Maude Jackson
+954483_Douglas Santos
+954876_Peter Lobello
+957174_David Lowry
+957736_Bruce NewKirk _ Fisher - paid, closed, refund issued on buyout
+959010_Matthew Ward
+959538_Cesar Caro
+960813_Melissa Davidson
+960916_Hallock Nash
+962676_Sanjay Patel - paid & closed
+962888_Judy Addesso-------CLAIM CLOSED------8_1_21
+963089_Ronnie Scott
+963112_Dwane & Johnson-CLAIM CLOSED
+965776_Francine Baker--- CLAIM DENIED --- CLAIM CLOSED -- AS PER RUSS
+966967_519 W 23rd St (Building)
+967890_Felipe Reyes_Elizabeth Gonzalez
+968011_Stacy Antos #2 - File closed - 6_3_21 RVF - SCR
+971471_Stuart Pond
+972139_Diane Walters #2
+972412_Jocelyne Augustin Closed 6_3_21 SCR
+974095_Dakota Lovett
+976265_Tonianne Dilena-close file, claim denied per Mike 6_8_21
+977748_Anthony_Deborah Nuzzi
+977812_Magdalena McNally - file closed, no claim
+978006_Christine Lulenski - claim paid & file closed
+98 Hill Court
+98 Kingfisher Road
+980343_Luigi Vozza
+982430_Shannel Miller_Selina Miller
+983695_Saarah Velandia
+984275_Jonathan Rosario
+984302_David Smith Kathryn Point Of Contact
+984313_Thelma Powell
+984348_Jeffrey Hirsch
+984972_Terish_Debbie Mccoy
+992725_Patricia Mckenna
+995635_Charles Fredericks
+995884_Anthony North
+996841_Andrew Espinoza_Trisha Espinoza - Paid & claim closed
+998725_Brent Tiringer
+ARCHIVE FOLDERS
+Abhijeet Nande - 12 Forest Dr
+Accounts Payable
+Adamkiewicz-23 Mill Dam Road-DSP - 23 Mill Dam Road
+Airbnb Listing - 526 Birch Hollow Dr
+Airbnb Listing 2 - 613 Bourdois Ave
+Alaimo - 978 Baldwin Path
+Alcolade LLC
+Allen - 5 Fairline Dr
+Allen Reilly - 5 Fairline Drive
+Allsate Consultants Inc
+Altomore, Pamela - Legal-Settled
+Amanda Trexler - 14 Crocus Ct
+Andrew Feldsohn - 19 Westwood Dr
+Angelo And Tony Choi Rental Policy - Paul Villica Owner - 2559 New York Ave
+Anne Biernacki - 18 Hartman Hill Rd
+Anthony Corsi - Reco bryan Karp - 28 Public Rd
+Anthony Legotti - 61 Marc Dr
+Anthony Rawls - 368 Holbrook Rd
+Ash Whole Holding Corp LLC
+Ashley R Coglietta - 4 Northfield Ln
+Attina-313 West 13th Street-CON - 313 West 13th Street
+Attina-313 West 13th Street-DSP - 313 West 13th Street
+Attina-313 West 13th Street-MIT - 313 West 13th Street
+Bada Bing 1 LLC
+Baglivo, Nicholas
+Bailey, Chenne - PROBATE
+Barbara (mom) Courney (daugter) - 488 Hempstead Ave
+Barbara Bolen - 423 1st St
+Barbara Bolin Water Loss #3 - 423 1st St
+Barbara Wilkins - 801 Taylor Ave
+Bargain Build Material Bargain Build Material - 1611 Lakeland Ave
+Bergin, Michelle - $ due
+Bill Kerney - 282 W 23rd St
+Blake Reed - PuffBack - Reco Bryan Karp - 35 Teaneck Dr
+Blake Reed Water Damage - 35 Teaneck Dr
+Boat And Jet Ski - Leeward Cove Marina - 327 River Ave Yes
+Bob - 1 Birchbrook Drive Smithtown
+Bob - 10 Highwoods Ct
+Bob - 103-14 Astoria Blvd
+Bob - 108 Burton Ln
+Bob - 11 Picardy Ln
+Bob - 12 Province Dr
+Bob - 1386 NY-25A
+Bob - 14225 Sutter Ave
+Bob - 160 Silver St
+Bob - 1611 Lakeland Avenue
+Bob - 1620 Old Cedar Swamp Rd
+Bob - 168 Moriches Ave
+Bob - 17 Windmill Ln
+Bob - 18 Rochelle Terrace
+Bob - 2 Ashwood Dr
+Bob - 20 Gilbert Ave
+Bob - 2125 North Dr
+Bob - 253 E Hoffman Ave
+Bob - 26 Adams Ave
+Bob - 27 Manor Dr
+Bob - 27 Mill Dam Rd
+Bob - 27 Neptune Ave
+Bob - 3 Texas St
+Bob - 3 Texas Street, Selden, NY
+Bob - 30 Maple St
+Bob - 31 Baker Pl,
+Bob - 31 Boulevard Ave
+Bob - 331 W 15th St
+Bob - 338 Waverly Ave
+Bob - 362 Mooney Pond Rd
+Bob - 38 Yacht Club Rd
+Bob - 41 Lovell Rd
+Bob - 43 Carver Blvd
+Bob - 45 Lama Dr
+Bob - 47 Marshall Drive
+Bob - 50 Richie Ct N
+Bob - 526 Birch Hollow Dr
+Bob - 53 Presford Dr
+Bob - 55 Vondran St
+Bob - 57 Jeanatta Ave
+Bob - 57 Middle Island Ave
+Bob - 58 Carver Blvd
+Bob - 59 Abbot Ln
+Bob - 6 Harriet St
+Bob - 6 wittBridge Lake Ronkonkoma
+Bob - 613 Bourdois Ave
+Bob - 66 Cocoanut St
+Bob - 674 N Richmond Ave
+Bob - 71 Lombardy Dr
+Bob - 75 Casement Ave
+Bob - 79 Traction Blvd
+Bob - 805 Bridge St
+Bob - 82 Caramel Rd
+Bob - 88 Rugby Dr
+Bob - 89 Argyle Dr
+Bob - 9 Andover Dr
+Bob - 92 Cranford Blvd
+Bob - 93-20 212th Pl
+Bob - 98 Kingfisher Rd
+Bob Jobs
+Bob Jobs Holding Co
+Bob Properties
+Bob Rental Property, BoboMatic - 121 W 21st St
+Bob stuff
+Bobbomatic
+Bobby Jr - Short Sale heavy Mold Damage - 41 Cove Rd
+Bobs Divorce Papers
+Bolen, Barbara -appraisal - Jeremy Wolf
+Bonilla - appraisal - need to follow up - Bob
+Bonilla-1192 Udall Road-REB - 1192 Udall Road
+Brenda Wasserman - 7 Drake Ln
+Brian Karp - 59-4 St Felix Ave
+Bridget Morgan - 39 Dubois Rd
+Brown-10 Woodland Road-MIT - 10 Woodland Road
+Brown-10 Woodland Road-REB - 10 Woodland Road
+Cadet, Guerdine
+Cadet-701 Windmill Avenue-CON - 701 Windmill Avenue
+Cadet-701 Windmill Avenue-MIT - 701 Windmill Avenue
+Cadet-701 Windmill Avenue-REB - 701 Windmill Avenue
+Camille Morello & Joseph - 977 Manor Ln
+Camille Morello 0522-0113ESD - 977 Manor Ln
+Capital Premium Financing
+Carole Kirchhoff - 37 Baiting Dr
+Casselli, John
+Castellanos - Reyes - 500 Ralph Ave
+Celso Rubio - Puffback - 154 Peterson St
+Certified ith Assumed Name
+Charles - 14 Broad St
+Charos-12 Woodland Road-MIT - 12 Woodland Road
+Charos-12 Woodland Road-REB - 12 Woodland Road
+Chiarello-81 E Jefryn Blvd-MIT - 81 E Jefryn Blvd
+Chris Simon Reco Phil Trustfi - 24 Laurie Blvd
+Christopher Lawson - 20 Arleigh Rd
+Cindy Favata 516-537-2568 - 85 A Greenlawn Rd
+Claims closed 2024
+Claims closed 2025
+Claims closed 2026
+Clark-514 Pease Lane-DSP - 514 Pease Lane
+Clark-514 Pease Lane-REB - 514 Pease Lane
+Clemendore-Williams, Dillis
+Clemendore-Williams-1631 North Gardiner Drive-MIT - 1631 North Gardiner Drive
+Clemendore-Williams-1631 North Gardiner Drive-REB - 1631 North Gardiner Drive
+Coglietta - old water file - do not use - Unknown
+Coglietta, Ashley
+Cominos-91 Lombardy Drive-MIT - 91 Lombardy Drive
+Conti, Michael - Legal
+Contracts - Test - 81 East Jefryn Boulevard
+Contracts pdf
+Cooper, Nicole
+Corinne Micari - pulse point fire - 334 Concord St
+Coritsidis, Nicholas - new
+Corsi-28 Public Road-CON - 28 Public Road
+Corsi-28 Public Road-MIT - 28 Public Road
+Craig Swick - Puff Back - 2867 Calvin Rd
+Cramdor LLC-195 North Country Road-MIT - 195 North Country Road
+CyberLink
+DOT - John Street - 110 John St
+DOT 508 Duffy HICKSVILLE - 508 Duffy Ave
+DOT Patchogue - 300 Robinson Ave
+Damian Brown - Tree damage - 10 Woodland Rd
+Dave & Mary Gerard - Fire +1 (631) 935-2032 - 55 Vondran St
+Dave Gerard - Tree Fall - 12 Colorado Pl
+David & Lillian Taylor - Water Loss 1-23-25 - do not use this one - 24 Glenmere Ln
+David Taylor - WTR 2026 - 24 glenmere Lane
+David Taylor - do not use this one - 24 Glenmere Lane
+David- Julie Wexler - 15 Sugarwood Ln
+Debby Akiens - 28 King St
+Debby Akines ELECTRICAL FIRE - 28 King St
+Debby Akines Puff Back - 28 King St
+Dell
+Denise Cella 6316611685 - 30 Little East Neck Rd Building 2
+Dennis Álvarez Reco Nelson Ortiz - 94 Alcolade Dr E
+Dentist and Doctor receipts
+Department of Transportation - East Hampton-East Hampton-REB - East Hampton
+Dillis Clemendore - 1631 N Gardiner Dr
+Dining Receipts 12-22 thru
+Dollar Tree Parking Lot - 3811 Hempstead Tpke
+Donna Paymer - Robert Bianco CLAIM # NO100493554 - 6 Thide ct
+Dot Garden City - 925 Stewart Ave
+Dot Syoset - 500 Robbins Ln
+Du Ya LLC
+Duro Dyne - 81 Spence Street
+Duro Dyne Corporation - 81 Spence St
+Earl Kincaid - 47 Westwood Ave
+East Hampton - Unknown
+Eddie Commissary - Paulina-Eddie commissary - 36-56 34th St
+Eli Serur - Reco Russ Vonfrank - Narraganett Bay NYH 0115134 - 175 W 95th St Apt #24g
+Emergency Services Corp
+Emmanuel West - 26 Pinetree Dr
+Employees expense reimbursements
+Encircle Exports
+Equipment Orders
+Felix And Jackie Adamkiewicz 631-767-4037 - 23 Mill Dam Rd
+Figueiredo, Rui
+Fishing License
+Flip It 1
+Flip It 10 LLC
+Flip It 11
+Flip It 12
+Flip It 13
+Flip It 14
+Flip It 15
+Flip It 16
+Flip It 17
+Flip It 2
+Flip It 3
+Flip It 4
+Flip It 5
+Flip It 6
+Flip It 7
+Flip It 8
+Flip It 9
+Flip It RMC3
+Flip it 11 - 21 Rustic Rd
+Flip it 12 - 131 Robinwood Dr
+Flip it 12-131 Robinwood Drive-MIT - 131 Robinwood Drive
+Flip it 14 LLC-613 Bourdois Avenue-MIT - 613 Bourdois Avenue
+Flip it 14 LLC-613 Bourdois Avenue-REB - 613 Bourdois Avenue
+Flip it 15-27 Manor Drive-CON - 27 Manor Drive
+Flip it 15-27 Manor Drive-MIT - 27 Manor Drive
+Flip it 15-27 Manor Drive-REB - 27 Manor Drive
+Flip it 4 LLC-41 Lovell Road-CON - 41 Lovell Road
+Flip it 4 LLC-41 Lovell Road-MIT - 41 Lovell Road
+Flip it 4 LLC-41 Lovell Road-REB - 41 Lovell Road
+Forrest Woodward - 9 Lagoon Dr N
+Francisco Ramos Monac - costal Insurance- PulsePoint Fire-Irma - 87 Root Ave
+Frank Romano - 383 Vanderbilt Pkwy
+Frank Romano Wife - Hot Water Heater - 1270 lakeshore drive Massapequa park ny
+Frank Romano-The Compound Gym - 1753 - 270 Airport Plaza Blvd
+Fred Crutchfield - 26 Walnut St
+Gary And Debbie Saporta 7-4-25 Water Damage - 4 Pebble Pl
+Gary Devani - 516-330-2946 Reco Spartan -allstste - 6 Yarmouth Ln
+Gas Receipts 11-22 thru
+Geffen-41 Sunset Beach Road-MIT - 41 Sunset Beach Road
+Geffen-41 Sunset Beach Road-REB - 41 Sunset Beach Road
+Geneve, Geradine - owes 8500
+Geneve-53 Suburban Avenue-ASB - 53 Suburban Avenue
+Geneve-53 Suburban Avenue-MIT - 53 Suburban Avenue
+Gerard, David - Legal & Lien
+Gerardine Geneve 631-374-9812 - 53 Suburban Ave
+Giacomo (Tenant Ezequias Pardim 516-939-5794) - 2120 6th St
+Giacomo - 5 Croydon Ct
+Giacomo-solar roof project - 37 Browning Dr
+Gonzales-18 26th Street-CON - 18 26th Street
+Gonzales-18 26th Street-MIT - 18 26th Street
+Gonzales-18 26th Street-REB - 18 26th Street
+Goosehead Insurance
+Guilaine Pierre Paul - 23 E Nancy Pl
+Guilaine Pierre Paul - Puff Back - Reco Waldy - 144 Washington Ave
+HENRY P VENIER 697 8TH ST BOHEMIA, NY 11716-1520 - 697 8th St
+HOUNSLOW LLC-209 Jamaica Avenue-MIT - 209 Jamaica Avenue
+Haq Emitsham Reco Micah - 474 Kime Ave
+Harriet & John Zaglas & Daughter Karen - 12 Dogwood Ln
+Harris, Kirk - pending contracts
+Harry Oates - 4 Hassam PI
+Hinton Water Loss - 33 Hinton Ave
+Homa Mansuri 631-697-8234 - 7 Kellogg Pl
+HomeDoc Restoration
+HomeDocRestoration
+Hopps-43 Bulger Street-MIT - 43 Bulger Street
+Hopps-43 Bulger Street-MIT 2 - 43 Bulger Street
+Hopps-43 Bulger Street-REB - 43 Bulger Street
+Hounslow
+Hounslow - 209 Jamaica Ave
+House spreadsheets
+Houston Person - 25 Miro Pl
+Howard & Suzan Greenberg - Kitchen Water Loss 0721-0036REB - 2 Grill Dr
+Huanan - Del Castillo, Doris - LEGAL
+Hyde Beach House
+IICRC
+IINK
+IT
+Impact Building Supply Inc
+Insurance
+Insurance Policies
+Interrante - Water - 509 Gardiners Ave
+Interrante, Linda - smoke
+Irma - Mold - 219 Massachusetts Ave
+James - 28 Long Meadow Pl
+Jean Silien Reco Phil - 496 Greengrove Ave
+Jeanette Connors - 5 Manitou Trail
+Jeff Petracca - 10 Dorchester St
+Jessica And Nick - 7 Wigeon Ct
+Jessica Chiarello Nick - 49 Pheasant Ct
+Joe Chiarello Jobs
+Joe Joe - 9 Hamilton Pl
+Joe Zawol - 17 Hudson Dr
+John Casselli - 57 Park St
+John Dellatto - 168 North Ln
+John Lapata Puffback ￼ - 15 Sparrow Ln
+John Lapota - Self-Pay Job For Repairs To Basement Apartment - 15 Sparrow lane Hunting NY
+John Muscat - 239 w9th street
+Johnson, Lois - Fenley Attorney - Settled
+Jooma-154 Hayrick Lane-REB - 154 Hayrick Lane
+Joseph Charles - 1479 Straight Path
+Josephine Monti - 75 Amsterdam Rd
+Joya, Martir - new
+July 4 2025 - Air Conditioner, Fire - 121 W 21st St
+KERRI LOPER-RIVERA JOSHUA RIVERA - 11 45TH ST ISLIP
+KRISHNA BEDESIE AND INDARDAI BEDASIE - 130-53 116th St
+Kathy Weber Water Damage - 265 Belmore Ave
+Ken - 1527 N Gardiner Dr
+Kenneth 3,200,000 Worth 2.9 Was 4.2mill - 17 Romana Dr
+Kereen Wiggins 516-668-7030 - 100 Northumberland Gate
+Kevin Barnett Reco Jude - 7 Georgia St
+Kevin Finnegan - House Fire ( Mass) - 15 45th St
+Kevin From Chase Bank - 4 2nd St
+Kirchoff, Carole
+Kirk Harris - 40 Penataquit Ave
+LEGAL
+Lama Drive LLC
+Lamanna-200 Birchwood Road-CON - 200 Birchwood Road
+Lamanna-200 Birchwood Road-DSP - 200 Birchwood Road
+Lamanna-200 Birchwood Road-MIT - 200 Birchwood Road
+Lamanna-200 Birchwood Road-REB - 200 Birchwood Road
+Lapata, John - Puffback
+Lead - 121 winters dr
+Lead - 4 SENECA CT
+Lead - 41 Fairmount St
+Leads - Unknown
+Lebron Mentor-119 North 26-REB - 119 North 26
+Lebron Mentor-119 North 26th Street-CON - 119 North 26th Street
+Lebron Mentor-119 North 26th Street-MIT - 119 North 26th Street
+Legotti-61 Marc Drive-MIT - 61 Marc Drive
+Legotti-61 Marc Drive-REB - 61 Marc Drive
+Leona Repetti - 335 Revilo Ave
+Loan Financing
+Loretta Worters Reco Bryan Karp- Water Damage - 2780 Natta Blvd
+Lost leads
+Lou Attina - Pro-desk Home Depot - Recco,Steve Squiterro - 313 west 13th street deer park ny 11729
+Lucca-21 Dahlia Lane-MIT - 21 Dahlia Lane
+Lucca-21 Dahlia Lane-REB - 21 Dahlia Lane
+Luis Parra - 174 Lexington Rd
+MAC Corp
+MOE Z ON
+Mac Contract
+Mac Property Management-909 Oakwood Drive-Westmont-REB - 909 Oakwood Drive
+Madison Ave Construction
+Madison Ave Construction - 81 E Jefryn Blvd
+Make it Happen Properties Corp
+Mammohan Beed Sandhu Reco Peter 1800 - 82 Whaley Avenue
+Marcia Deer - 318 Wicks Ave
+Margarita - 8 Autumn Dr
+Maria Castro - 83 Cranford Blvd
+Mark And Linda Interrante - Puffback & Water - 509 Gardiners Ave
+Mark Reco Bryan Karp - 195 N Country Rd
+Marriott-144 West 19th Street-Puffback - 144 West 19th Street
+Marriott-144 West 19th Street-Water - 144 West 19th Street
+Martir Joya - Smoke - 1187 Little East Neck Rd
+McGreal-75 Hearthside Drive-Mount Sinai-SUP - 75 Hearthside Drive
+McGreal-75 Hearthside Drive-Mount Sinai-WTR - 75 Hearthside Drive
+Mica - 11 Lavender Ln
+Michael And Jenn Moschitta - Interboro insurance - 7 Cynthia Dr
+Michael And Mary Keegan Puffback Reco Bryan Karp - 21 Tiffany Way Nessconsett
+Michael Conti - Giacomo 2-2-24 - 9 Rockland Pl
+Michelle Bergin - 93 8th Avenue
+Michelle Bergin 631-304-1035 Water Loss Reco Tom Franko - 93 8th Ave
+Michelle Berry -Water Damage - google Lead - 113-18 199th St
+Michelle Berry -toilet overflow google lead - 198-19 118th Ave
+Mike Comious - 64 Corbin Ave
+Mike Scapes - great guy, but no Puff Back damage has a lot of referral business. - 80 S Coleman Rd
+Mirline & Pierre Cadeau - 24 Wessel Ln
+Misc Receipts
+Mooney-2279 3rd Ave-MIT - 2279 3rd Ave
+Mooney-2279 Coney Island Ave-REB - 2279 Coney Island Ave
+Mooney-2279 Merrick Ave-MIT - 2279 Merrick Ave
+Morello, Camille
+Morello, Rich
+Moriches Drive
+Moschitta-7 Cynthia Drive-CON - 7 Cynthia Drive
+Moschitta-7 Cynthia Drive-DSP - 7 Cynthia Drive
+Moschitta-7 Cynthia Drive-MIT - 7 Cynthia Drive
+My Data Sources
+Nadia DiDonato Reco Mike Phountain Water - 1 Prince St
+Naya - Google Yelp Lead - 18 Glenwood Ln
+Naya Knight - 18 Glenwood Lane
+Nelli Parrish - 41 Franklin Ave
+Nelli Parrish - WTR - 41 Franklin Ave
+Nelson Ortiz - from the pizzeria personal house, Puffback - 79 Clinton Ave_
+Nelson Ortiz - from the pizzeria personal house, Puffback - 79 Clinton Ave_-DESKTOP-4LK1QM0
+Nelson Ortiz - from the pizzeria personal house, Puffback - 79 Clinton Ave_-DESKTOP-4LK1QM0-2
+Newman-765 Illinois 83-Elmhurst-MLD - 765 Illinois 83
+Newman-765 Illinois 83-Elmhurst-WTR - 765 Illinois 83
+Nicholas Baglivo - WTR - 185 19th St
+Nicholas Coritsidis - 66 Pentmoor Dr
+Nick And Jessica - New House - 8 Pheasant Ct
+Norma Bonilla Reco Irma - Boiler Fire 631-404-5724 - 1192 Udall Rd
+Not Mine
+Old Claims
+Old Judgements
+Omeilla Davis Reco Yelp - 103 Washington Dr
+Oneill-8 Kara Court-RPR - 8 Kara Court
+Operation LI LLC
+Oseki Sosa - 117-35 239th St
+Outlook Files
+Owners Policy
+Oxford Insurance
+P&L'S
+PA Rules
+Pamela Altomare - Giocobi - 930 Stratford Ct
+Pampinella, Giacomo - Legal
+Parrish, Neli - water
+Parrish, Nelli - smoke
+Patricia Lorenz - Biohazard - 11 Lawrence Rd
+Patrick Clark - 514 Pease Ln
+Payments received
+Paymer, Donna
+Pedro Cerda - 19 Chesapeake Bay Rd
+Phillip Stefanelli - 185 Lincoln Blvd
+PhotoDirector
+Phountain PH1 Inc.- Glenn Taylor 631-872-0897 - 19 E Sunrise Hwy
+Precision Packing LLC
+Property Disclosure
+Q-81 E Jefryn Blvd-MIT - 81 E Jefryn Blvd
+Qasir-81 E Jefryn Blvd-CON - 81 E Jefryn Blvd
+Qasir-81 E Jefryn Blvd-MIT - 81 E Jefryn Blvd
+Quick Folder
+REAL ESTATE
+RMC1 LLC
+RVF file
+Rainbow File
+Ranieri - 33 Cedar Rd E
+Raquel Ruela - 93 Roosevelt Ct
+Rawls, Anthony
+Ray leads - Unknown
+Raymond - 20 Cleveland St
+Raymond Lamanna - 200 Birchwood Rd
+Reco Bobby Jr - 65 Overlook Dr
+Reco Brad Grossman - Car Hit House - 45 Ronald Ave
+Reco Diva - 125 S Clinton Ave
+Reed, Blake - appraisal
+Reed, Blake - water - new
+Reilly-5 Fairline Drive-REB - 5 Fairline Drive
+Renard, Yolaine
+Rental property - 79 C Traction Blvd
+Rich Morello - Reco Sal Gigante Water Loss - 65 Julbet Dr
+Rizzardi, Sharon - Chris
+Robert Thorton - Samatha Taylor Realty Llc - 47 Otsego Ave
+Roberta Odierna - 153 Sycamore Cir
+Rochelle Marriott - 144 West 19th ST_
+Rochelle Marriott - 144 West 19th ST_-DESKTOP-4LK1QM0
+Rochelle Marriott - 144 West 19th ST_-DESKTOP-4LK1QM0-2
+Rodriguez-32 Bowling Lane-REB - 32 Bowling Lane
+Rogie Nomus - 158 St James Ave S
+Romano-383 Vanderbilt Parkway-Dix Hills-REB - 383 Vanderbilt Parkway
+Romano-383 Vanderbilt Parkway-Dix Hills-WTR - 383 Vanderbilt Parkway
+Roxsana Cairo - Reco Bob Thornton - 704 6th St
+Rubio, Celso - Emilio
+Rui & Elyse Figueiredo - 11 Picardy Ln
+Russ folder
+Ryan Laflare - 185 Secatogue Ln W
+Sajj Fix And Flip - 296 Westchester Ave N
+Sajjad Jooma 516-708-7728 - 154 Hayrick Ln
+Sandra Haynes - 540 Linden Blvd
+Saporta, Gary
+Save folder
+Scaling up
+Schmidt PUFFBACK - 4 Tidemill Ln
+Schmidt, Steve - smoke
+Schmidt-4 Tide Mill Road-REB - 4 Tide Mill Road
+Scouter Properties Contract
+Sean Caruso - 84 Cheltenham Road
+Shah Kalpana - 12 Pond View Dr
+Shakira Alston - 31 Hickory St
+Sharon & Philip Rizzardi - 33 Dover Hill Dr
+Silien, Jean - new
+Simon, Chris - smoke
+Smoke Damage - 184 Hallock Rd Apt 6B1
+Squitiro, Steven
+Stanzione, Donna
+Steve Ghabriel - 5 Hyson Way
+Steve Schmidt - WATER - 4 Tidemill Ln
+Steven Squitiro - 87 Wagstaff Ln
+Sub Contractor Agreement
+Subs - Liability & Workers Comp
+Sudano Corey - 168 Anchorage Drive
+Sushko-183 North Kings Avenue-MIT - 183 North Kings Avenue
+Sushko-183 North Kings Avenue-REB - 183 North Kings Avenue
+Swick
+Szuflada
+Tammy Amador - Reco - Irma - Realtor - 215 Massachusetts Ave
+Tara Hannigan - 30 Wall St
+Taylor, David - water
+Taylor-24 Glenmere Lane-MIT - 24 Glenmere Lane
+Taylor-24 Glenmere Lane-REB - 24 Glenmere Lane
+Terry Legal File
+Terry, Angela
+Test - 81 E Jefryn Blvd
+Test Project - 282 W 23rd St
+Test Steve - 81a E Jefryn Blvd
+The James - 17-21 Fire Island Ave
+The compound gym - Romano
+Thomas Walsh - 306 Ocean Ave
+Thompson - Home Doc - 106 Locust Dr
+Tiringer-1 Lagoon Drive North-REB - 1 Lagoon Drive North
+Title Application
+Trexler-14 Crocus Court-West Babylon-REB - 14 Crocus Court
+Trish Wallace (dad) Albert - Yelp, Lead Mold & Water - 2 Harvard Pl
+Unknown - 1 Fox Run
+Unknown - 1 Ginny Ct
+Unknown - 1 Gleaner Ln
+Unknown - 10 Ashland Ct
+Unknown - 10 Roosevelt Ave
+Unknown - 10 Somerville St
+Unknown - 10 Sunset Ave
+Unknown - 1010 Jerusalem Ave
+Unknown - 1089 Grand St
+Unknown - 123 Clubhouse Rd
+Unknown - 131 Robinwood Dr
+Unknown - 154 Meadowmere Ave
+Unknown - 164 Cabot St
+Unknown - 17 Bay Woods Dr
+Unknown - 17 Court St
+Unknown - 170 Crabapple Rd
+Unknown - 18 W Clearwater Rd
+Unknown - 185 secatogue la West Islip
+Unknown - 1943 Atlantic Ave
+Unknown - 2 Lorraine Ct
+Unknown - 2 Ranch Dr
+Unknown - 209 Jamaica Ave
+Unknown - 21 Rustic Rd
+Unknown - 215 Massachusetts Ave
+Unknown - 232 Berkshire Dr
+Unknown - 24 Kirk Rd
+Unknown - 24 Tide Ct
+Unknown - 242 Prospect Pl
+Unknown - 249 W Sunrise Hwy
+Unknown - 270 Shadybrook Ln-chimney Fire Lead
+Unknown - 273 New York Ave
+Unknown - 29 Gladstone Ave
+Unknown - 37 Brookside Ave
+Unknown - 4 Benjoe Dr
+Unknown - 4 Ranch Dr
+Unknown - 40 Stephen Hands Path
+Unknown - 441 Greenbelt Pkwy-fire Lead
+Unknown - 456 Bayview Ave Fire Lead
+Unknown - 500 Riverleigh Ave
+Unknown - 52 Smith St
+Unknown - 526 Birch Hollow Dr
+Unknown - 541 Hickory St
+Unknown - 55 Mastic Blvd
+Unknown - 55 Schenectady Ave
+Unknown - 58 Glenmere Way
+Unknown - 6 Dumond Pl Coram-fire Lead
+Unknown - 613 Bourdois Ave
+Unknown - 62 Longfellow Dr
+Unknown - 64 N 16th St
+Unknown - 65 Federal Ln
+Unknown - 7 sun hill rd nesconset
+Unknown - 705 E 101st St
+Unknown - 72 Grandview Dr
+Unknown - 727 Dune Rd
+Unknown - 81 E Jefryn Blvd
+Unknown - 87 Lafayette Dr
+Unknown - 89 Dollard Dr
+Unknown - 91 Lombardy Dr
+Unknown - 916 Herkimer St
+Vehicles
+Vendor Payments
+Venier-697 8th Street-MIT - 697 8th Street
+Victorious Pizzeria-2690 New York 112-REB - 2690 New York 112
+Vincent Bui - 162 N 7th St
+Von And Cynthia Estrada - 1185 S Strong Ave
+WHD
+Waly - 93-20 212th Pl
+Water Damage 12-27-24 - 613 Bourdois Ave
+Wayne Cebollero
+Weber, Kathy
+West, Emanuell - Legal - Lien
+Westwood Funding
+Worters, Loretta - new - contracts signed
+Yoda Leris - Puffback Reco Elleni - 2 Harp Ln
+Yolaine Renard - Puffback - 43 Locust Drive
+Yolaine Renard - Water - 43 Locust Dr
+Zaglas, John
+Zawol-17 Hudson Drive-MIT - 17 Hudson Drive
+editable contracts kathy
+old file do not use coglietta - Unknown

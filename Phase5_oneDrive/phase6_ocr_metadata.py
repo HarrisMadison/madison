@@ -29,34 +29,94 @@ log = logging.getLogger("onedrive_sync.phase6")
 # ── Document type classifier ──────────────────────────────────────────────────
 # Maps filename keywords -> human-readable document type stored in metadata.
 # Order matters -- first match wins.
+#
+# 2026-05-12 expansion: targeted additions based on doc_type audit
+# (scripts/audit_other_doc_types.py). Audit found 5,534 files (46.9%) falling
+# through to the generic 'document' fallback, with high-confidence signals
+# for insurance carriers, Encircle inspection reports, photo reports,
+# Xactimate/Symbility estimates, AOBs, correspondence, and spreadsheets.
+# Rules added below are filename-anchored (\b boundaries, character-class
+# exclusions on either side of short tokens) to minimize false positives.
 _DOC_TYPE_RULES: list[tuple[str, str]] = [
     # Financial
-    (r"p.?l|profit.?loss|statement",            "pl_statement"),
+    # Note (2026-05-12): the old rule "p.?l|profit.?loss|statement" was too
+    # greedy -- the bare "statement" matched Settlement Statement, Policy
+    # Statement, Bank Statement, and Closing Statement, all of which
+    # belong in other buckets. The new rule keeps the P&L coverage and
+    # adds the "and"/"&" variants that the old regex missed.
+    (r"\bp\s*&\s*l\b|\bp\.?l\b|\bprofit.?(and|&)?.?loss\b",  "pl_statement"),
     (r"invoice|inv_",                            "invoice"),
     (r"closing.?package|closing.?docs",          "closing_package"),
     (r"closing.?statement|hud",                  "closing_statement"),
+    (r"settlement.?statement",                   "closing_statement"),
     (r"deposit|wire|payment",                    "payment_record"),
     (r"draw.?request",                           "draw_request"),
     # Legal / title
     (r"title.?report",                           "title_report"),
     (r"deed",                                    "deed"),
+    # AOB = Assignment of Benefits (claim work). Treated as contract.
+    # Anchored to avoid matching "aob" inside other tokens.
+    (r"(?<![a-z0-9])aob(?![a-z0-9])",            "contract"),
+    (r"\bassignment.?of.?benefits?\b",           "contract"),
+    (r"work.?authorization|\bauthorization.?(?:to|for)\b",  "contract"),
     (r"contract|executed",                       "contract"),
     (r"terms.?of.?sale",                         "terms_of_sale"),
     (r"agency.?disclosure",                      "disclosure"),
     (r"disclosure",                              "disclosure"),
     # Valuation
-    (r"appraisal",                               "appraisal"),
+    # FNMA 1004 = Uniform Residential Appraisal Report (URAR), 1007 = Single-Family
+    # Comparable Rent Schedule. These are appraisal-class documents that contain
+    # the "opinion of value" answer.
+    #
+    # Filenames in this corpus use underscores or spaces as separators (e.g.
+    # "110092316_FNMA 1004_1007_1"). Python's \b treats _ as a word character,
+    # so \bfnma\b would NOT match _fnma_. We use explicit alphanumeric
+    # lookarounds instead so _fnma_, -fnma-, and fnma.pdf all match while
+    # "fnmainstall" and "infomanager" do not. For the form numbers we use
+    # digit-only lookarounds so 1004 matches inside _1004_ but not inside
+    # 21004x or a 17-digit scan timestamp.
+    #
+    # Audited 2026-05-11 against the live bucket: FNMA matches 1 file, 1004
+    # matches the same 1 (rest are digit-bordered timestamps the lookaround
+    # correctly rejects), 1007 matches the same 1. URAR/BPO matched zero
+    # files and were removed as speculative.
+    (r"appraisal|opinion.?of.?value",            "appraisal"),
+    (r"(?<![a-z0-9])fnma(?![a-z0-9])",           "appraisal"),
+    (r"(?<!\d)1004(?!\d)|(?<!\d)1007(?!\d)",     "appraisal"),
+    (r"comparable.?sales?|comp.?report",         "appraisal"),
     (r"assessment",                              "assessment"),
     # Permits / compliance
     (r"permit|webpermit",                        "permit"),
     (r"certificate.?of.?occupancy|coo",          "certificate_of_occupancy"),
     (r"certificate.?of.?compliance",             "certificate_of_compliance"),
+    # Inspections / reports.
+    # Encircle is restoration-industry inspection-report software; its
+    # output PDFs are named "<job> encircle report.pdf" or "encircle.pdf".
+    # 349 files in the audit had this pattern, all currently unclassified.
+    # Alphanumeric lookarounds (not \b) because filenames often use
+    # underscores -- e.g. "Smith_Job_encircle.pdf" -- and Python's \b
+    # treats _ as a word character so \bencircle\b wouldn't match it.
+    (r"(?<![a-z0-9])encircle(?![a-z0-9])",       "inspection_report"),
+    (r"certificate.?of.?completion",             "inspection_report"),
+    (r"\biicrc\b",                               "inspection_report"),
     (r"inspection",                              "inspection_report"),
     (r"violation",                               "violation_report"),
-    # Insurance / environmental
+    # Insurance / environmental.
+    # Carrier brand names cover ~1,000 of the audit's unclassified files.
+    # Each is a unique brand string so false-positive risk is minimal.
+    # Alphanumeric lookarounds (not \b) because filenames often use
+    # underscores between tokens -- "Allstate_Estimate_2023.pdf" wouldn't
+    # match \b(allstate)\b since \b treats _ as a word character.
     (r"flood",                                   "flood_disclosure"),
+    (r"(?<![a-z0-9])(?:allstate|state.?farm|geico|liberty.?mutual|farmers|"
+     r"nationwide|usaa|travelers|chubb|progressive|foremost|hippo|lemonade|"
+     r"amica|hartford|metlife|aaa)(?![a-z0-9])",  "insurance_policy"),
+    (r"declaration.?page|\bdec.?page\b",         "insurance_policy"),
     (r"insurance|policy",                        "insurance_policy"),
+    # "Claim" anchored to avoid matching "reclaim" or "claimant" in unrelated docs.
+    (r"\bclaim\b",                               "claim_documents"),
     (r"asbestos|mold",                           "environmental_report"),
+    (r"\bsoot\b",                                "environmental_report"),
     (r"goosehead|safechoice",                    "insurance_document"),
     # Loan / financing
     (r"loan.?approv|lender",                     "loan_document"),
@@ -64,13 +124,41 @@ _DOC_TYPE_RULES: list[tuple[str, str]] = [
     # Entity docs
     (r"ein|irs",                                 "tax_document"),
     (r"entity|llc|operating.?agreement",         "entity_document"),
-    # Scope / SOW
+    # Scope / SOW / estimate.
+    # Xactimate and Symbility are claim-restoration estimate tools.
+    # "estimate" anchored with \b to avoid "estimated" / "estimator".
+    (r"xactimate|symbility",                     "estimate"),
     (r"\bsow\b|scope.?of.?work",                 "scope_of_work"),
+    (r"\bestimate\b",                            "estimate"),
     # Enrollment / producer
     (r"enrollment|producer",                     "insurance_document"),
+    # Photos.
+    # Photo-report PDFs and DOCX files; the literal image files (.jpg etc.)
+    # are not in the searchable index. Anchored variants only to avoid
+    # "photocopy" / "photoshop" false positives.
+    (r"\bphoto.?report\b|\bphotos?\b|\bphotographs?\b|\bgallery\b",  "photo_report"),
+    # Correspondence -- anchored to avoid "letterhead" / "memorandum" of unrelated kinds.
+    (r"\bletter\b|\bmemo\b|\bcorrespondence\b",  "correspondence"),
     # Catch-all scan patterns
     (r"hpscan|atcco|atcks",                      "scanned_document"),
     (r"^\d{17,}",                                "scanned_document"),    # Doorloop auto-scans
+]
+
+# Extension-based fallbacks for spreadsheets and emails. These fire AFTER
+# the regex list above missed -- if a filename like "Q1_Numbers.xlsx"
+# matches no keyword rule, we still want it classified as a spreadsheet
+# rather than fall through to the generic "document" tag. Photos are
+# excluded here because their extensions (.jpg/.png) aren't in the
+# searchable index in the first place.
+_DOC_TYPE_EXTENSION_FALLBACKS: list[tuple[str, str]] = [
+    (".xlsx",  "spreadsheet"),
+    (".xls",   "spreadsheet"),
+    (".csv",   "spreadsheet"),
+    (".tsv",   "spreadsheet"),
+    (".pptx",  "presentation"),
+    (".ppt",   "presentation"),
+    (".eml",   "email"),
+    (".msg",   "email"),
 ]
 
 # ── Property name extractor ───────────────────────────────────────────────────
@@ -112,10 +200,17 @@ def _extract_property(blob_name: str) -> str:
 
 def _classify_doc_type(filename: str) -> str:
     name_lower = filename.lower()
-    # Strip extension for matching
+    # Strip extension for matching against regex rules
     stem = Path(filename).stem.lower()
     for pattern, doc_type in _DOC_TYPE_RULES:
         if re.search(pattern, stem, re.IGNORECASE):
+            return doc_type
+    # Extension-based fallback (only fires when no keyword rule matched).
+    # Keeps spreadsheets, presentations, and emails from collapsing into
+    # the generic "document" tag when their filenames are otherwise
+    # uninformative (e.g. "Q1_Numbers.xlsx", "Untitled.pptx").
+    for ext, doc_type in _DOC_TYPE_EXTENSION_FALLBACKS:
+        if name_lower.endswith(ext):
             return doc_type
     return "document"
 

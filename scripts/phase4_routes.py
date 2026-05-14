@@ -267,6 +267,180 @@ def reload_local_index():
         return jsonify({"ok": False, "error": str(e)}), 500
 
 
+# === Phase 0: Retrieval validation harness ===========================
+# Read-only diagnostic. Surfaces four parallel views of how a query is
+# resolved without changing any production behavior.
+#
+# Usage:
+#   GET /api/debug/retrieval?q=<query>
+#   GET /api/debug/retrieval?q=<query>&folder_files_limit=200
+#   GET /api/debug/retrieval?q=<query>&skip_vertex=1   (don't burn search quota)
+#
+# View 1: LocalFileIndex.find()           - what filename ranking returns today
+# View 2: detect_property_in_query()      - what folder detection WOULD return
+#                                           (currently dead code in chat path)
+# View 3: every GCS file inside that folder, if a folder was detected
+#         (the ground truth Phase 1 retrieval will expose)
+# View 4: raw Vertex search results       - what Vertex returns today
+#
+# The size of (View 3) minus (View 1) is the size of the Phase 1 win for
+# the 'everything on this person' failure. The size of (View 3) minus
+# (View 4) is the size of the win for 'price hidden in folder' failures.
+@phase4_bp.route("/api/debug/retrieval")
+def debug_retrieval():
+    q = (request.args.get("q") or "").strip()
+    if not q:
+        return jsonify({"error": "q parameter required"}), 400
+
+    # Caps to keep the JSON response bounded even on very large folders.
+    try:
+        folder_files_limit = max(1, min(int(request.args.get("folder_files_limit", "200")), 2000))
+    except ValueError:
+        folder_files_limit = 200
+    skip_vertex = request.args.get("skip_vertex", "").lower() in ("1", "true", "yes")
+
+    out = {
+        "query": q,
+        "normalized_query": "",
+        "core_query": "",
+        "local_filename_hits": [],
+        "detected_folder": None,
+        "folder_file_count": None,
+        "folder_files": [],
+        "folder_files_truncated": False,
+        "vertex_hits": [],
+        "vertex_skipped": skip_vertex,
+        "summary": {},
+        "errors": {},
+    }
+
+    # --- 1) LocalFileIndex.find() : current filename ranking -------------
+    try:
+        from local_index import get_index, _normalize, _strip_filler
+        idx = get_index()
+        norm_q = _normalize(q) or ""
+        out["normalized_query"] = norm_q
+        out["core_query"] = _strip_filler(norm_q) or norm_q
+
+        local_hits = idx.find(q, top_n=15)
+        # find() returns name+uri+score but not the GCS path; derive the
+        # path so folder analysis below can match against it.
+        enriched_local = []
+        for h in local_hits:
+            uri = h.get("uri", "")
+            path = ""
+            if uri.startswith("gs://"):
+                rest = uri[5:].split("/", 1)
+                if len(rest) == 2:
+                    path = rest[1]
+            enriched_local.append({
+                "name":  h.get("name", ""),
+                "uri":   uri,
+                "path":  path,
+                "score": h.get("score", 0.0),
+            })
+        out["local_filename_hits"] = enriched_local
+    except Exception as e:
+        out["errors"]["local_filename_hits"] = "{}: {}".format(type(e).__name__, e)
+
+    # --- 2) detect_property_in_query() : the dead-code folder detection --
+    try:
+        from local_index import get_index
+        idx = get_index()
+        out["detected_folder"] = idx.detect_property_in_query(q)
+    except Exception as e:
+        out["errors"]["detected_folder"] = "{}: {}".format(type(e).__name__, e)
+
+    # --- 3) Folder enumeration : every file whose path lives in folder ---
+    folder_paths_set = set()
+    if out["detected_folder"]:
+        try:
+            from local_index import get_index, _normalize
+            idx = get_index()
+            folder_norm = _normalize(out["detected_folder"])
+            folder_files = []
+            # Walk the in-memory _files list (no GCS calls). Match on
+            # normalized path-segment equality so 'Pampinella, Giacomo - Legal'
+            # vs 'pampinella giacomo legal' both resolve identically.
+            for entry in getattr(idx, "_files", []) or []:
+                # entry is (norm_name, real_name, gs_uri)
+                if len(entry) != 3:
+                    continue
+                norm_name, real_name, gs_uri = entry
+                path = ""
+                if gs_uri.startswith("gs://"):
+                    rest = gs_uri[5:].split("/", 1)
+                    if len(rest) == 2:
+                        path = rest[1]
+                if not path:
+                    continue
+                segments = path.split("/")
+                # Exclude the filename itself; only check folder segments.
+                hit = False
+                for seg in segments[:-1]:
+                    if _normalize(seg) == folder_norm:
+                        hit = True
+                        break
+                if hit:
+                    folder_files.append({
+                        "name": real_name,
+                        "uri":  gs_uri,
+                        "path": path,
+                    })
+                    folder_paths_set.add(path)
+            out["folder_file_count"] = len(folder_files)
+            out["folder_files"] = folder_files[:folder_files_limit]
+            out["folder_files_truncated"] = len(folder_files) > folder_files_limit
+        except Exception as e:
+            out["errors"]["folder_files"] = "{}: {}".format(type(e).__name__, e)
+
+    # --- 4) Raw Vertex search : what Vertex returns today ---------------
+    if not skip_vertex:
+        try:
+            intel = get_intelligence()
+            vertex_sources, _vc = intel._vertex_search(q)
+            vhits = []
+            for s in vertex_sources:
+                snip = s.get("snippet", "") or ""
+                vhits.append({
+                    "title":   s.get("title", ""),
+                    "uri":     s.get("uri", ""),
+                    "snippet": snip[:300],
+                })
+            out["vertex_hits"] = vhits
+        except Exception as e:
+            out["errors"]["vertex_hits"] = "{}: {}".format(type(e).__name__, e)
+
+    # --- 5) Summary stats : the numbers that quantify the gap -----------
+    try:
+        local_paths = {h.get("path", "") for h in out["local_filename_hits"] if h.get("path")}
+        vertex_paths = set()
+        for v in out["vertex_hits"]:
+            vu = v.get("uri", "")
+            if vu.startswith("gs://"):
+                rest = vu[5:].split("/", 1)
+                if len(rest) == 2:
+                    vertex_paths.add(rest[1])
+
+        summary = {
+            "local_hit_count": len(out["local_filename_hits"]),
+            "vertex_hit_count": (None if skip_vertex else len(out["vertex_hits"])),
+        }
+        if out["detected_folder"] and folder_paths_set:
+            summary["folder_overlap_with_local"]   = len(local_paths & folder_paths_set)
+            summary["folder_files_missed_by_local"] = len(folder_paths_set - local_paths)
+            if not skip_vertex:
+                summary["folder_overlap_with_vertex"]   = len(vertex_paths & folder_paths_set)
+                summary["folder_files_missed_by_vertex"] = len(folder_paths_set - vertex_paths)
+        out["summary"] = summary
+    except Exception as e:
+        out["errors"]["summary"] = "{}: {}".format(type(e).__name__, e)
+
+    if not out["errors"]:
+        del out["errors"]
+    return jsonify(out)
+
+
 @phase4_bp.route("/bob")
 def bob_dashboard():
     try:

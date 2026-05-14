@@ -35,6 +35,32 @@ def _load_phase6():
     except ImportError:
         pass
     _P6_LOADED = True
+
+# Content classifier: runs over extracted text to identify appraisal-class
+# documents (and, in future, other doc types). Lazy-loaded so a missing
+# metadata package degrades gracefully -- the sync still works, files just
+# don't get content-based doc_type. Imports from the repo root, which
+# requires Phase5_oneDrive's parent to be on sys.path. We insert it here
+# defensively because onedrive_sync runs both as a script and via
+# importlib.reload from simple_web's scheduler thread.
+_CC_LOADED = False
+_classify_text = None
+
+def _load_content_classifier():
+    global _CC_LOADED, _classify_text
+    if _CC_LOADED:
+        return
+    try:
+        from pathlib import Path as _Path
+        _repo_root = _Path(__file__).resolve().parent.parent
+        if str(_repo_root) not in sys.path:
+            sys.path.insert(0, str(_repo_root))
+        from metadata.content_classifier import classify_text as _ct
+        _classify_text = _ct
+        log.info("Content classifier loaded.")
+    except Exception as e:
+        log.info(f"Content classifier unavailable (filename-only classification will be used): {e}")
+    _CC_LOADED = True
 from datetime import datetime, timezone
 from pathlib import Path
 from google.cloud import storage
@@ -495,6 +521,12 @@ def _build_and_upload_manifest(dry_run: bool, token: str = "", drive_id: str = "
     seen_ids: set    = set()
     count_docs = count_large = 0
     count_extracted = count_ocr = count_passthrough = 0
+    # Track final doc_type per URI so we can write a sidecar JSON the
+    # query-time ranker reads (Layer 4 in the layered ranking model:
+    # persisted classification, used in preference to filename hints).
+    doc_type_index: dict[str, str] = {}
+    count_classified_content = 0
+    count_classified_filename = 0
 
     for blob in bucket.list_blobs(prefix="onedrive-mirror/"):
         name_lower = blob.name.lower()
@@ -527,6 +559,10 @@ def _build_and_upload_manifest(dry_run: bool, token: str = "", drive_id: str = "
             if _enrich_metadata:
                 base_meta = _enrich_metadata(blob.name, base_meta)
                 base_meta["document_type"] = "large_pdf_pointer"
+            # Dual-write: doc_type mirrors document_type for compatibility
+            # with the older drafting pipeline that filters on doc_type.
+            base_meta["doc_type"] = base_meta.get("document_type", "large_pdf_pointer")
+            doc_type_index[uri] = base_meta["doc_type"]
             lines.append(json.dumps({"id": doc_id, "jsonData": json.dumps(base_meta)}))
             count_large += 1
         else:
@@ -567,6 +603,43 @@ def _build_and_upload_manifest(dry_run: bool, token: str = "", drive_id: str = "
 
             # ── Decide which content path to ship to Vertex ────────────────────
             content_text = extracted_text or ocr_text or ""
+
+            # ── Content-based classification (Layer 2 of layered ranking).
+            # Runs on extracted text BEFORE truncation so we never miss a
+            # late-document fingerprint. Strong-OR-2-weak rule lives inside
+            # metadata.content_classifier; this code path just consumes the
+            # verdict. If the classifier returns a doc_type, it overrides
+            # whatever the filename heuristic put in document_type, because
+            # content evidence beats filename evidence by design.
+            _load_content_classifier()
+            content_doc_type = None
+            if _classify_text and content_text:
+                try:
+                    verdict = _classify_text(content_text, filename=title)
+                    content_doc_type = verdict.get("doc_type")
+                    if content_doc_type:
+                        log.info(
+                            f"  Content classified {title!r} -> {content_doc_type} "
+                            f"({verdict.get('confidence')}, {len(verdict.get('signals', []))} signal(s))"
+                        )
+                except Exception as e:
+                    log.debug(f"  Content classifier error on {title!r}: {e}")
+
+            if content_doc_type:
+                base_struct["document_type"] = content_doc_type
+                count_classified_content += 1
+            else:
+                # Filename heuristic already populated document_type via
+                # _enrich_metadata; nothing else to do for that field.
+                if base_struct.get("document_type"):
+                    count_classified_filename += 1
+
+            # Dual-write: doc_type mirrors document_type so the canonical
+            # field name expected by metadata/schema.py is always present
+            # in the manifest, regardless of which classifier won.
+            base_struct["doc_type"] = base_struct.get("document_type", "document")
+            doc_type_index[uri] = base_struct["doc_type"]
+
             if content_text:
                 if len(content_text) > MAX_EXTRACTED_CHARS:
                     content_text = content_text[:MAX_EXTRACTED_CHARS]
@@ -608,6 +681,25 @@ def _build_and_upload_manifest(dry_run: bool, token: str = "", drive_id: str = "
     bucket.blob(manifest_path).upload_from_string("\n".join(lines))
     manifest_uri  = f"gs://{GCS_BUCKET_NAME}/{manifest_path}"
 
+    # ── doc_type sidecar (Layer 4: persisted classification) ──────────────
+    # Flat URI -> doc_type lookup. The query-time ranker reads this in
+    # preference to filename heuristics, so once a sync finishes the next
+    # chat session uses the persisted classification immediately. Cheap
+    # to write (small JSON, single GCS object) and cheap to load (one
+    # GCS read at LocalFileIndex.load() time).
+    if doc_type_index:
+        try:
+            bucket.blob("manifests/doc_type_index.json").upload_from_string(
+                json.dumps(doc_type_index, indent=2),
+                content_type="application/json",
+            )
+            log.info(
+                f"  doc_type sidecar written: {len(doc_type_index)} entries -> "
+                f"gs://{GCS_BUCKET_NAME}/manifests/doc_type_index.json"
+            )
+        except Exception as e:
+            log.warning(f"  doc_type sidecar write failed: {e}")
+
     # Write photo_index.json — flat lookup for Bob to read directly from GCS.
     # Keyed by property name, value has OneDrive URL + photo count.
     # This avoids Vertex search quota for photo lookups entirely.
@@ -634,6 +726,11 @@ def _build_and_upload_manifest(dry_run: bool, token: str = "", drive_id: str = "
         f"{count_ocr} OCR, {count_passthrough} passthrough) + "
         f"{count_large} large-PDF pointers + {count_photos} photo pointers "
         f"-> {manifest_uri}"
+    )
+    log.info(
+        f"Classification: {count_classified_content} content-classified, "
+        f"{count_classified_filename} filename-classified, "
+        f"{len(doc_type_index)} total entries in doc_type sidecar"
     )
     return manifest_uri
 

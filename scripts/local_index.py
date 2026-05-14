@@ -43,12 +43,35 @@ _DEFAULT_SA_KEY = str(
 
 
 def _normalize(s: str) -> str:
-    """Lower, strip ext, collapse separators. '106-Madison-Ave-' = '106 madison ave'."""
+    """Lower, strip ext, collapse separators. '106-Madison-Ave-' = '106 madison ave'.
+
+    Replaces any non-alphanumeric character with a space, then collapses
+    whitespace runs. This handles the punctuation that real-world folder
+    and file names contain (commas, parentheses, ampersands, slashes,
+    apostrophes) so that 'Pampinella, Giacomo - Legal' tokenizes to
+    ['pampinella', 'giacomo', 'legal'] -- not ['pampinella,', 'giacomo',
+    'legal'] which would prevent token-level matching against query word
+    'pampinella'.
+
+    Extension stripping is conservative: only the last segment after the
+    final dot is removed, and only if it looks like a real extension (1-5
+    alphanumeric chars). This prevents folder names like '1. Profit &
+    Expense Tracking (P&L'S) - Unknown' from collapsing to just '1' (which
+    Path.stem would do because it cuts at the LAST dot blindly).
+    """
     if not s:
         return ""
     base = Path(s).name.lower()
-    stem = Path(base).stem
-    return re.sub(r"[\s_\-\.]+", " ", stem).strip()
+    if "." in base:
+        idx = base.rfind(".")
+        suffix = base[idx + 1:]
+        # Only treat as extension if suffix is 1-5 alphanumeric chars.
+        # Catches .pdf, .docx, .xlsx, .jpg, .png, .pptx, .json. Skips
+        # ' - Unknown', "'S)", etc.
+        if 1 <= len(suffix) <= 5 and suffix.isalnum():
+            base = base[:idx]
+    cleaned = re.sub(r"[^a-z0-9]+", " ", base)
+    return re.sub(r"\s+", " ", cleaned).strip()
 
 
 # Filler words to strip from queries before matching. These dilute scoring
@@ -62,6 +85,39 @@ _QUERY_STOP_WORDS = {
     "please", "thanks", "hi", "hello",
     "summary", "summarize", "read", "open", "contents", "content",
     "how", "do", "does", "its", "it", "if", "your",
+}
+
+# Words that may appear in folder names but are TOO GENERIC to use as
+# anchors in pass-3 matching. These are category/document-type words that
+# show up in only 1-3 folders by coincidence, but matching on them would
+# produce false positives like 'show me all the photos' -> '1620 Old Cedar
+# Swamp Advert Photos' or 'water damage claims' -> 'Claims closed 2024'.
+# A word in this set is never accepted as a strong anchor in pass 3,
+# regardless of how rare it is in the folder set.
+_FOLDER_CATEGORY_NOISE_WORDS = {
+    # Document type / category
+    "photo", "photos", "picture", "pictures", "image", "images",
+    "file", "files", "document", "documents", "docs",
+    "invoice", "invoices", "receipt", "receipts",
+    "permit", "permits", "inspection", "inspections",
+    "contract", "contracts", "agreement", "agreements",
+    "legal", "finance", "financial", "closing", "deed", "title",
+    "appraisal", "appraisals", "estimate", "estimates",
+    "claim", "claims", "insurance",
+    "email", "emails", "correspondence",
+    # Damage / job type
+    "water", "fire", "smoke", "mold", "flood", "damage",
+    "puffback", "asbestos", "lead", "emergency",
+    # Status / state
+    "unknown", "closed", "open", "pending", "active",
+    "new", "old", "draft", "final", "signed", "completed",
+    # Org structure
+    "vendor", "vendors", "client", "clients", "customer", "customers",
+    "property", "properties", "job", "jobs", "project", "projects",
+    # Geography / category modifiers (often appear in folder NAMES but
+    # users use them as descriptors, not folder identifiers)
+    "vehicles", "funding", "payments", "tracking", "expense", "profit",
+    "contracts", "signed",
 }
 
 
@@ -95,6 +151,12 @@ class LocalFileIndex:
         # search (catches docs in the folder whose body text doesn't mention
         # the property name -- e.g. "Pack Out.pdf" inside /Pampinella/).
         self._property_folders: set[str] = set()
+        # URI -> doc_type lookup, populated from manifests/doc_type_index.json
+        # written by Phase5_oneDrive/onedrive_sync.py. This is Layer 4 in the
+        # layered ranking model: the persisted classification result that
+        # the ranker prefers over filename heuristics. Empty until the first
+        # sync runs with content classification enabled.
+        self._doc_type_by_uri: dict[str, str] = {}
         self._loaded = False
         self._loaded_at = 0.0
 
@@ -109,14 +171,27 @@ class LocalFileIndex:
         files = []
         # Reset folder set on every (re)load so removed folders don't linger.
         property_folders: set[str] = set()
-        # Layout the metadata extractor expects:
-        #   <mirror_prefix>/<properties_folder>/<property>/<category>/...
-        # mirror_prefix is what self.prefix already targets (e.g.
-        # "onedrive-mirror/"). The next segment is the properties container
-        # ("Properties" or "Doorloop" depending on deployment). The segment
-        # AFTER that is the property/person folder name we want.
-        prefix_depth = len([p for p in self.prefix.strip("/").split("/") if p])
-        property_segment_idx = prefix_depth + 1  # skip mirror_prefix + properties container
+        # Folder discovery walks EVERY path segment of every file, not just
+        # a single fixed depth. Real OneDrive layouts nest property/claim
+        # folders at varying depths -- e.g. both
+        #   onedrive-mirror/Doorloop/27 Manor Drive/files.pdf      (depth 2)
+        # and
+        #   onedrive-mirror/Claims In Process/Pampinella 2120 6th has REBUILD/Giacomo (Tenant ...)/Closing/file.pdf
+        #                                                          (depths 2, 3, 4, 5)
+        # both exist. A fixed-depth extractor only sees the first depth-2
+        # segment and misses everything else.
+        #
+        # The distinctiveness filter in detect_property_in_query (Pass 3)
+        # uses _FOLDER_CATEGORY_NOISE_WORDS plus a per-corpus rare-word
+        # gate to suppress garbage segments like 'files', 'documents',
+        # 'Job Documents', 'Outlook Files'. So walking every segment is
+        # safe -- the noise is filtered at match time, not at index time.
+        #
+        # We skip:
+        #   - the prefix portion of the path (onedrive-mirror/, etc.)
+        #   - the last segment (always the file itself)
+        prefix_parts = [p for p in self.prefix.strip("/").split("/") if p]
+        prefix_depth = len(prefix_parts)
         t0 = time.time()
         for b in bucket.list_blobs(prefix=self.prefix):
             real_name = Path(b.name).name
@@ -125,15 +200,15 @@ class LocalFileIndex:
             norm = _normalize(real_name)
             if norm:
                 files.append((norm, real_name, f"gs://{self.bucket_name}/{b.name}"))
-            # Extract the property folder name from the path. Cheap, runs
-            # in the same loop -- no extra GCS calls.
+            # Extract every folder segment from the path. Cheap, runs in
+            # the same loop -- no extra GCS calls. We walk from after the
+            # prefix to before the filename, adding each segment as a
+            # candidate folder name.
             parts = b.name.split("/")
-            if len(parts) > property_segment_idx + 1:
-                # +1 because we need at least one more segment AFTER the
-                # property folder (the file or a subfolder), confirming
-                # the property segment is a real folder, not the file itself.
-                candidate = parts[property_segment_idx].strip()
-                # Skip empty strings and obvious non-folder noise.
+            # parts[0:prefix_depth] is the prefix portion; parts[-1] is the
+            # filename. Everything in between is a folder.
+            for seg in parts[prefix_depth:-1]:
+                candidate = seg.strip()
                 if candidate and not candidate.startswith("."):
                     property_folders.add(candidate)
         self._files = files
@@ -143,7 +218,52 @@ class LocalFileIndex:
         elapsed = self._loaded_at - t0
         print(f"[LocalFileIndex] Loaded {len(files)} filenames in {elapsed:.1f}s")
         print(f"[LocalFileIndex] Discovered {len(property_folders)} property folders")
+
+        # Best-effort doc_type sidecar load. The file is written by
+        # Phase5_oneDrive/onedrive_sync.py at the end of every successful
+        # manifest build. Missing or malformed sidecar is non-fatal: the
+        # ranker just falls back to filename-based classification (Layer 3)
+        # for every file. So a freshly-deployed system with no sync run
+        # yet still works -- it just doesn't get the Layer 4 boost.
+        try:
+            sidecar_blob = bucket.blob("manifests/doc_type_index.json")
+            if sidecar_blob.exists():
+                import json as _json
+                raw = sidecar_blob.download_as_text()
+                parsed = _json.loads(raw)
+                if isinstance(parsed, dict):
+                    # Defensive: only accept str -> str entries. Bad data
+                    # (e.g. a stray nested dict from a future schema change)
+                    # gets dropped silently rather than poisoning the ranker.
+                    self._doc_type_by_uri = {
+                        k: v for k, v in parsed.items()
+                        if isinstance(k, str) and isinstance(v, str)
+                    }
+                    print(
+                        f"[LocalFileIndex] Loaded doc_type sidecar: "
+                        f"{len(self._doc_type_by_uri)} entries"
+                    )
+                else:
+                    print("[LocalFileIndex] doc_type sidecar exists but is not a dict; ignoring")
+            else:
+                print("[LocalFileIndex] doc_type sidecar not present (filename-only ranking)")
+        except Exception as e:
+            print(f"[LocalFileIndex] doc_type sidecar load failed: {e}")
+            self._doc_type_by_uri = {}
+
         return len(files)
+
+    def get_doc_type(self, uri: str) -> str:
+        """Return the persisted doc_type for a GCS URI, or empty string.
+
+        Used by the query-time ranker to consult Layer 4 (persisted
+        classification) before falling back to Layer 3 (filename hint).
+        Returns "" rather than None so callers can do truthiness checks
+        without needing an explicit None comparison.
+        """
+        if not uri:
+            return ""
+        return self._doc_type_by_uri.get(uri, "")
 
     def find(self, query: str, top_n: int = 5) -> list[dict]:
         """
@@ -193,21 +313,56 @@ class LocalFileIndex:
             self.load()
         return set(self._property_folders)
 
+    def _build_folder_word_freq(self) -> dict:
+        """Compute (and cache) a {word: count} frequency map across all
+        folder names. Used by detect_property_in_query() to gauge how
+        distinctive a query word is. Words appearing in many folders
+        (e.g. 'legal', 'files') are weak match anchors. Words appearing
+        in one or two folders (e.g. 'pampinella', 'northridge') are
+        strong anchors.
+        """
+        cache = getattr(self, "_folder_word_freq_cache", None)
+        if cache is not None:
+            return cache
+        freq: dict = {}
+        for folder in self._property_folders:
+            if not folder:
+                continue
+            for w in _normalize(folder).split():
+                if not w:
+                    continue
+                freq[w] = freq.get(w, 0) + 1
+        self._folder_word_freq_cache = freq
+        return freq
+
     def detect_property_in_query(self, query: str) -> Optional[str]:
         """Return the property folder name that best matches the query.
 
-        Matching strategy:
-          1. Exact-substring match (case-insensitive) on either the raw or
-             normalized form of the folder name. Wins outright.
-          2. Token-overlap fallback: every distinctive word in the folder
-             name must appear in the query. Catches folder names with
-             punctuation/casing differences (e.g. "15-Northridge" matched
-             by "15 northridge").
+        Designed for the real-world folder naming patterns in this bucket,
+        which include things like:
+          - 'Pampinella, Giacomo - Legal'
+          - '0122-0001EWM - 1117 Aron Pl'
+          - 'Vincent Bui - 162 N 7th St'
+          - 'Weber, Kathy'
+        Users typically only type ONE distinctive token ('pampinella',
+        'weber', 'northridge') and expect that to find the folder.
+
+        Matching strategy, in order of priority:
+          PASS 1 -- Exact normalized match. Folder normalized equals
+                    query normalized. Highest confidence.
+          PASS 2 -- Folder name (lowercased) is a substring of the query.
+                    Catches users who type the full folder name.
+          PASS 3 -- Distinctive query word appears as a token in the folder
+                    name. 'distinctive' means the word appears in only a
+                    small fraction of total folders (rare -> high signal).
+                    This is the path that catches 'pampinella' ->
+                    'Pampinella, Giacomo - Legal'.
+          PASS 4 -- Token-overlap full match: every distinctive word of
+                    the folder is in the query. Conservative fallback for
+                    users who type partial folder names.
 
         Returns the EXACT folder name (preserving original case/punctuation)
         suitable for use in a Vertex AI Search filter, or None if no match.
-        Returning the exact folder name matters because Vertex's
-        `property: ANY("...")` filter is exact-match.
         """
         if not query or not query.strip():
             return None
@@ -218,45 +373,160 @@ class LocalFileIndex:
 
         q_lower = query.lower()
         q_norm = _normalize(query)
+        # Filler-stripped form. Used as an alternate target for PASS 1
+        # so that command-style queries like 'summarize 27 Manor Drive'
+        # still find folder '27 Manor Drive' via exact match. Without
+        # this, those queries fall through to PASS 2 substring (which
+        # works for short folder names but is less reliable for long
+        # messy ones because Re.escape on long strings with embedded
+        # noise can sometimes fail the word-boundary check). Stripping
+        # filler before equality is strictly more permissive: a query
+        # with no filler is unchanged.
+        q_norm_stripped = _strip_filler(q_norm)
         q_words = set(q_norm.split())
+        # Words from the query that are 'interesting' -- long enough or
+        # digit-bearing -- and not common stop words. These are the only
+        # ones we'll consider as match anchors in pass 3.
+        q_distinctive = {
+            w for w in q_words
+            if (w.isdigit() or any(c.isdigit() for c in w) or len(w) >= 4)
+            and w not in _QUERY_STOP_WORDS
+        }
 
-        # Pass 1: substring match. Prefer the longest match so
-        # "15-Northridge" beats "15" if both happen to be folder names.
+        # PASS 1: exact normalized equality (raw OR filler-stripped).
+        # We compare against both q_norm and q_norm_stripped so that:
+        #   query 'summarize 27 Manor Drive'
+        #   q_norm = 'summarize 27 manor drive'  (no PASS 1 match)
+        #   q_norm_stripped = '27 manor drive'   (PASS 1 match)
+        # without changing behavior for users who type just '27 manor drive'.
+        for folder in self._property_folders:
+            if not folder:
+                continue
+            f_norm = _normalize(folder)
+            if f_norm and (f_norm == q_norm or f_norm == q_norm_stripped):
+                return folder
+
+        # PASS 2: folder name is a substring of the query
+        # (User typed the full folder name verbatim or near-verbatim.)
+        # Require word-boundary match so 2-3 char folders like 'IT' or
+        # 'WHD' don't accidentally match inside longer query words like
+        # 'permits' (contains 'it') or 'whdrawn' (contains 'whd').
         substring_hits: list[str] = []
         for folder in self._property_folders:
             if not folder:
                 continue
-            f_lower = folder.lower()
             f_norm = _normalize(folder)
-            # Direct substring (handles "pampinella" matching "Pampinella"
-            # and "15 northridge" matching "15-Northridge" via norm).
-            if f_lower in q_lower or (f_norm and f_norm in q_norm):
+            if not f_norm:
+                continue
+            # Build word-boundary regex from the normalized folder name.
+            # Escape any regex metachars (shouldn't exist after normalize
+            # but cheap defense). Word boundary on both sides ensures
+            # 'it' does not match 'permits'.
+            pattern = r'(?<![a-z0-9])' + re.escape(f_norm) + r'(?![a-z0-9])'
+            if re.search(pattern, q_norm):
                 substring_hits.append(folder)
         if substring_hits:
             # Longest match wins -- more specific.
             return max(substring_hits, key=len)
 
-        # Pass 2: token-overlap fallback. Require ALL distinctive words of
-        # the folder name to appear in the query. Avoids false positives
-        # like matching folder "15-Northridge" on a query that only says
-        # "northridge" (we want the user to be specific).
+        # PASS 3: distinctive query word appears in folder
+        # This is the path that catches 'pampinella' ->
+        # 'Pampinella, Giacomo - Legal'.
+        if q_distinctive:
+            freq = self._build_folder_word_freq()
+            total_folders = max(len(self._property_folders), 1)
+            # A query word is a STRONG ANCHOR only if it appears in a small
+            # ABSOLUTE number of folders. This is much stricter than a
+            # percentage threshold because category/damage-type words like
+            # 'water', 'fire', 'legal', 'unknown' can each appear in
+            # 10-60 folders and would otherwise pass a percentage check.
+            # Empirically: in 1352-folder buckets, person/property names
+            # appear in 1-3 folders; everything else is generic.
+            #   pampinella  -> 1 folder  (very distinctive)
+            #   weber       -> 2 folders
+            #   northridge  -> 1 folder
+            #   legal       -> 8 folders (NOT distinctive enough)
+            #   water       -> 25 folders (definitely not distinctive)
+            #   unknown     -> 64 folders (placeholder noise)
+            # Floor of 3 keeps tiny buckets working; cap of 5 prevents
+            # category words from sneaking in on larger buckets.
+            max_allowed_freq = max(3, min(5, int(total_folders * 0.005)))
+
+            # Score each folder by (a) how many strong-anchor words match,
+            # (b) total distinctive words matched as tiebreak, (c) name
+            # length as final tiebreak (longer name = more specific).
+            best_score = (0, 0, 0)
+            best_folder: Optional[str] = None
+            for folder in self._property_folders:
+                if not folder:
+                    continue
+                f_words = set(_normalize(folder).split())
+                if not f_words:
+                    continue
+                # Words in BOTH the query (distinctive) and this folder.
+                overlap = q_distinctive & f_words
+                if not overlap:
+                    continue
+                # How many of those are STRONG anchors (rare in folder set
+                # AND not a category/noise word)?
+                strong = sum(
+                    1 for w in overlap
+                    if freq.get(w, 0) <= max_allowed_freq
+                    and w not in _FOLDER_CATEGORY_NOISE_WORDS
+                )
+                if strong == 0:
+                    # Folder matched only on common words like 'legal' or
+                    # 'photos'. Skip -- too many false positives.
+                    continue
+                score = (strong, len(overlap), len(folder))
+                if score > best_score:
+                    best_score = score
+                    best_folder = folder
+                elif score == best_score and best_folder is not None:
+                    # Deterministic tiebreak
+                    if folder < best_folder:
+                        best_folder = folder
+            if best_folder:
+                return best_folder
+
+        # PASS 4: every distinctive folder word is in the query
+        # Conservative fallback. Only fires when the query mentions every
+        # distinctive word of the folder (e.g. query '15 northridge appraisal'
+        # matching folder '15-Northridge' because {15, northridge} is a
+        # subset of the query's word set).
+        # Apply noise-word filter so a folder like 'Old Claims' doesn't
+        # match query 'water damage claims' on the lone non-noise distinctive
+        # word being 'claims'.
         for folder in self._property_folders:
             if not folder:
                 continue
-            f_norm = _normalize(folder)
-            f_words = set(f_norm.split())
+            f_words = set(_normalize(folder).split())
             if not f_words:
                 continue
-            # Distinctive = digit-bearing or 4+ chars. Skips "st", "of".
             f_distinctive = {w for w in f_words
                              if w.isdigit() or any(c.isdigit() for c in w)
                              or len(w) >= 4}
             if not f_distinctive:
-                # Folder name is all short/common words -- skip. Substring
-                # pass would have caught it if appropriate.
+                continue
+            # Require at least one non-noise distinctive word so that
+            # category-only folders ('Old Claims', 'Outlook Files') can't
+            # match queries that just mention those category words.
+            non_noise = {w for w in f_distinctive
+                         if w not in _FOLDER_CATEGORY_NOISE_WORDS}
+            if not non_noise:
                 continue
             if f_distinctive.issubset(q_words):
                 return folder
+
+        # All four passes missed. Emit a diagnostic so future production
+        # failures can be investigated without standalone simulators.
+        # Bounded in length so the log line stays readable.
+        q_preview = q_norm[:80] + ('...' if len(q_norm) > 80 else '')
+        d_preview = ", ".join(sorted(q_distinctive))[:80]
+        print(
+            f"[LocalFileIndex] detect_property_in_query: NO MATCH "
+            f"q_norm={q_preview!r} q_distinctive=[{d_preview}]"
+        )
         return None
 
     def _score(self, norm_q: str, q_words: set,

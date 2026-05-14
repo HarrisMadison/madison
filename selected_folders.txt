@@ -1,0 +1,30 @@
+# Curated leaf-folder sample for structured_summary generation.
+#
+# Rules:
+#  - one property / one job / one claim per folder
+#  - roughly 5-50 indexed files
+#  - no umbrella/container folders (Claims In Progress, Doorloop, etc.)
+#  - no broad company/admin folders
+#  - mixed across folder_purpose to exercise all three classifier branches
+#
+# Lines starting with `#` are comments. Blank lines are ignored.
+# Order is preserved so the run report groups results by category.
+
+# ── property/appraisal style ─────────────────────────────────────────
+27 Manor Drive
+9 Hamilton Place
+221 Center Street
+276 West 22nd Street
+ANTOS, STACEY - 126 JONI DR, W SAYVILLE
+
+# ── claim/restoration style ──────────────────────────────────────────
+916950_Labon - claim paid & closed
+930262_Tanya Harris - Paid & closed
+Michelle Berry -toilet overflow google lead - 198-19 118th Ave
+Trish Wallace (dad) Albert - Yelp, Lead Mold & Water - 2 Harvard Pl
+Chris Simon Reco Phil Trustfi - 24 Laurie Blvd
+
+# ── unknown / edge cases ─────────────────────────────────────────────
+2020 Payroll
+Boat Rental
+Warranted Photos Report
