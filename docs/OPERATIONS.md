@@ -4,7 +4,7 @@
 For architecture, see `docs/bigquery_v1_design.md`. For deeper
 troubleshooting of older issues, see `docs/TROUBLESHOOTING.md`.
 
-**Last updated**: 2026-05-14 (BigQuery v1 stabilized)
+**Last updated**: 2026-05-19 (admin/template ship + sidecar revert incident + §5.6–§5.9 documentation gap noted; see §5.6, §5.10, §5.11, §5.12)
 
 ---
 
@@ -440,6 +440,441 @@ facing.
   queries' output. Lives alongside the chat UI.
 
 Either is half a day's work when prioritized.
+
+
+---
+
+### 5.6 Project history — §5.6 through §5.9 documentation lost (2026-05-19)
+
+**Status**: documentation gap. **This is not a record of work that did
+not happen.** It is a record of documentation that was lost because
+of a working-tree commit-hygiene failure on 2026-05-19.
+
+Between 2026-05-15 and 2026-05-18, four workstreams happened and were
+documented in `OPERATIONS.md` as sections §5.6, §5.7, §5.8, and §5.9.
+Those edits were never committed to git. On 2026-05-19, during the
+§5.10 ship, a `Filesystem:edit_file` corruption to `OPERATIONS.md`
+required `git checkout docs/OPERATIONS.md` to recover. The checkout
+reverted to the last committed version (2026-05-14), which predates
+§5.6. The four sections of prose documentation were lost in the same
+operation. The session in progress chose not to reconstruct them from
+memory, because reconstruction from session-window recollection would
+record imperfect details as authoritative documentation.
+
+What the four sections covered, at a summary level (no specifics
+reconstructed from memory):
+
+- **§5.6** — diagnosis that the doc_type classifier was the upstream
+  bottleneck for `folder_purpose=unknown`. Identified
+  `phase6_ocr_metadata._classify_doc_type` as the place to fix.
+- **§5.7** — sidecar reclassification ship that added Madison-specific
+  filename rules (5A: anchored `irs/ein`; 5B: `packout`, `packback`,
+  `concln`, `strcleaning`, `reb-revise` etc. as `estimate`; 5C: fixed
+  `\bestimate\b` word boundary).
+- **§5.8** — proposed insurance_policy ambiguity refinement; simulated
+  against the full corpus; rejected because it regressed canonical
+  claim folders.
+- **§5.9** — folder_key normalization probe; identified one collision
+  (`Pack Out - Jeremy` / `Pack out - Jeremy`); deferred implementation
+  because the migration cost (re-derive every event_id) was not
+  justified by one duplicate row.
+
+**Authoritative sources for these workstreams (durable, on disk):**
+
+| Source | Lives at |
+|---|---|
+| §5.7 5A/5B/5C regex rules | `Phase5_oneDrive/phase6_ocr_metadata.py` |
+| §5.7 ship vehicle (also used for §5.11 recovery) | `scripts/reclassify_doc_types_sidecar_only.py` |
+| §5.7 pre-ship sidecar backup | `gs://madison-rag-60-rag-raw/manifests/doc_type_index.backup-20260518-170150.json` |
+| §5.7 local pre-rebuild backup | `backups/doc_type_index.pre-rebuild.json` |
+| §5.7 baseline snapshots | `backups/baseline_folder_purpose.txt`, `backups/baseline_doc_type.txt`, `backups/baseline_row_counts.txt` |
+| §5.8 simulation probe | `scripts/probe_classifier_insurance_policy.py` |
+| §5.9 inventory probe | `scripts/probe_folder_key_variants.py` |
+| Static-probe variants used during scoping | `scripts/probe_doctype_static_v1.py`, `scripts/probe_doctype_static_v2.py`, `scripts/probe_classifier_simulation.py` |
+| BigQuery state reflecting all four ships/probes | `madison-rag-60.folder_intelligence.*` (events, structured_fields_long, document_inventory_items, open_items_long, folder_latest_state) |
+| JSONL ground truth | `data/structured_summaries/structured_summary_events.jsonl` (append-only) |
+| Validation pack | `docs/VALIDATION_PACK.md`, `docs/validation_pack_folders.txt` |
+
+**How to reconstruct these sections in the future:** read the code,
+run the probes against current BigQuery state, inspect the BigQuery
+distribution and `folder_latest_state` rows, then write the prose
+from those observations. Do NOT reconstruct from session memory or
+from this stub. The code and data are the authority.
+
+**Note on §5.5 status:** the committed §5.5 above says the dashboard
+layer was unbuilt at the time of the 2026-05-14 commit. Looker Studio
+Page 1 (Folder Portfolio) was built around 2026-05-15 and is live in
+production. The §5.5 prose in the committed file is stale.
+`infra/bigquery/views.sql` documents the three views that back Page 1
+(`folder_latest_event`, `folder_latest_state`,
+`folder_latest_open_items`). Future runbook revisions should update
+§5.5 to reflect the live dashboard.
+
+---
+
+### 5.10 admin/template folder detection v1 (2026-05-19)
+
+**Status**: shipped. Two-edit code change to
+`scripts/job_intelligence.py`. Validated via
+`scripts/probe_classifier_admin_folder.py` (7/7 pass criteria) and
+confirmed in production via manual chat verification plus BigQuery
+`folder_latest_state` confirmation after a close-out batch.
+
+#### Scope (deliberately narrow)
+
+This ship is **backend / data-hygiene cleanup only**. Specifically:
+
+- **Changed:** `folder_purpose` for admin/template folders flips to
+  `unknown`. Open-items routing for those folders changes to the
+  cautious unknown-envelope (`response_kind=open_items_unknown`).
+  BigQuery `folder_latest_state` counts shift accordingly. Looker
+  Page 1 reflects the new distribution.
+- **NOT changed:** the chat summary prose for admin folders.
+  `_build_folder_summary_response` still calls Gemini and renders the
+  overview + key_facts the same way for admin folders as for work
+  folders. `summarize 4. Bob Sheets - Spreadsheets` still produces a
+  summary with extracted facts; only the trailing Open Items section
+  is suppressed (because `show_open_items` is derived from
+  `folder_purpose`).
+- **Deferred:** any summary-prose admin behavior — warning headers,
+  refusal to extract from template folders, etc. — is out of scope.
+  When prioritized, that work is a separate workstream in
+  `_build_folder_summary_response`, not in the classifier.
+
+This ship is **not a search/relevance improvement.** It corrects the
+classification and dashboard data, nothing else. Relevance work
+(visible source grounding, retrieval quality) is a separate track.
+
+#### What changed
+
+Two additions to `scripts/job_intelligence.py`:
+
+**5.10A — `_ADMIN_NAME_RE` constant** (inserted after
+`_CLAIM_SUPPORTING_BUCKETS`, before the structured_summary schema
+contract divider):
+
+```python
+_ADMIN_NAME_RE = re.compile(
+    r"(?:templates?|forms?|boilerplate|reference)\s*$"
+    r"|\bbob[\s_]+sheets?\b"
+    r"|\bmerge[\s_]+form\b"
+    r"|^\s*\d{4}\s+payroll\b",
+    re.IGNORECASE,
+)
+```
+
+Four pattern families, joined by alternation:
+
+1. `(templates?|forms?|boilerplate|reference)\s*$` — folder name ENDS
+   with the admin keyword. Catches `Merge Form Templates`,
+   hypothetical `Closing Forms`, `Madison Boilerplate`. Trailing
+   anchor prevents firing on `Reference Documents for Smith`.
+2. `\bbob[\s_]+sheets?\b` — operator's admin compound. Compound
+   match prevents firing on a customer named "Bob" or street
+   "Sheets".
+3. `\bmerge[\s_]+form\b` — template-aggregator compound.
+4. `^\s*\d{4}\s+payroll\b` — anchored year+payroll, e.g.
+   `2020 Payroll`. Bare `\bpayroll\b` was rejected; a customer at
+   "Payroll Lane" or a payroll-office claim would over-fire.
+
+Explicitly rejected from the surface:
+
+- `^\s*\d+\.\s` numeric prefix — false-positives
+  `1. Bathroom Remodel - Bolen`, a real customer work-unit folder.
+- standalone `\bsheets?\b`, `\bmerge\b`, `\bpayroll\b` — over-broad.
+- broad `\b(documents?|docs?|logs?)\b` patterns.
+
+**5.10B — short-circuit in `_classify_folder_purpose`** (inserted at
+the top of the function body, after the docstring, before the
+existing rule cascade):
+
+```python
+if folder_name and _ADMIN_NAME_RE.search(folder_name):
+    return "unknown"
+```
+
+Short-circuits to `unknown` rather than any concrete purpose.
+`unknown` is the safe sink — flipping a wrong classification to
+another wrong classification breaks neighbors.
+
+#### Validation
+
+`scripts/probe_classifier_admin_folder.py` — read-only simulation
+against the 54 BQ-tracked folders. 7/7 pass criteria.
+
+#### Post-ship verification (manual)
+
+- `summarize 4. Bob Sheets - Spreadsheets` → renders summary with no
+  trailing Open Items section. Summary prose unchanged from pre-ship.
+- `what's missing for 4. Bob Sheets - Spreadsheets` → cautious
+  unknown-folder envelope. Admin short-circuit fires through
+  `_build_open_items_only_response`.
+- Same for `Merge Form Templates`.
+- `summarize KALTSAS - 68 BUSHWOOD DR, SHIRLEY` → full claim summary
+  with Open Items checklist rendered. Unchanged.
+
+#### Post-ship BigQuery state
+
+After the close-out batch (2026-05-19 14:12 UTC) and loader run:
+
+| folder_name | folder_purpose |
+|---|---|
+| 4. Bob Sheets - Spreadsheets | unknown |
+| KALTSAS - 68 BUSHWOOD DR, SHIRLEY | claim_restoration |
+| Merge Form Templates | unknown |
+
+KALTSAS confirmation is non-trivial — see §5.11 for the sidecar
+revert incident that delayed this ship by approximately three hours
+and required regenerating the §5.7 patched sidecar.
+
+#### Artifacts retained
+
+- `scripts/probe_admin_folder_detection.py` — scoping probe.
+- `scripts/probe_classifier_admin_folder.py` — simulation probe;
+  7/7 PASS gate before code edit.
+- `scripts/probe_targeted_verification.py` — 8-folder targeted probe
+  used during the §5.11 sidecar restore. **Superseded** by
+  `probe_full_corpus_verification.py`. Retained for forensic record
+  only; reason text in the older probe overstates "held by rule"
+  for folders the classifier was never going to flip.
+- `scripts/probe_full_corpus_verification.py` — 54-folder
+  production-classifier probe. Authoritative for predicting
+  `folder_purpose` outcomes; supersedes `--diff` mode of
+  `scripts/reclassify_doc_types_sidecar_only.py` (see §5.11).
+- `docs/admin_rule_close_out_folders.txt` — three-folder input file
+  for the close-out batch.
+
+---
+
+### 5.11 doc_type sidecar revert incident (2026-05-19)
+
+**Status**: incident closed with full data recovery. Root cause not
+fully determined. Watch procedure documented; recurrence will trigger
+forensic investigation.
+
+#### What happened
+
+On 2026-05-19 at approximately 04:37 UTC, the live
+`gs://madison-rag-60-rag-raw/manifests/doc_type_index.json` was found
+to have content equivalent to the pre-§5.7 classification state.
+KALTSAS pack-out files that the §5.7 ship had promoted to
+`doc_type=estimate` reverted to `doc_type=document`. The §5.7 5A
+`tax_document` false-positive fix on `KALTSAS-REPAIRS_Final Draft.pdf`
+also reverted. Effect: BigQuery `folder_latest_state` rows generated
+after the revert (during the §5.10 close-out batch) classified
+KALTSAS as `unknown`, surfacing as a hard-rule violation in the
+admin/template ship validation.
+
+#### What was ruled out
+
+- The §5.7 code edits in `Phase5_oneDrive/phase6_ocr_metadata.py`
+  remained intact on disk (`grep` of lines 139–146 confirmed all five
+  5B regex rules present: packout, packback, concln, strcleaning,
+  reb-revise).
+- No Madison-scheduled task wrote the sidecar. Windows
+  `Get-ScheduledTask` shows only `MadisonAve_BqLoader` (BigQuery
+  loader, doesn't touch sidecars). Microsoft's own OneDrive client
+  tasks ran in the time window but do not write to GCS.
+- The live sidecar was not byte-identical to the pre-§5.7 backup
+  (`backups/doc_type_index.pre-rebuild.json`). `FC.EXE /B` reported
+  divergence starting at byte 0x7FA3 — same overall structure and
+  size class, different file ordering and content. The live sidecar
+  was a fresh build, not a backup restore.
+- The post-§5.7 patched sidecar was never separately preserved. The
+  `doc_type_index.backup-20260518-170150.json` artifact named in the
+  §5.7 rollback procedure is the pre-§5.7 state (saved by
+  `--upload --backup-prev` BEFORE the §5.7 upload). There is no GCS
+  artifact of the §5.7 patched sidecar to restore from.
+
+#### Recovery
+
+The §5.7 patched sidecar was regenerated from scratch by re-running
+`scripts/reclassify_doc_types_sidecar_only.py` (the same tool that
+did the original §5.7 ship). The regeneration uses the still-intact
+`phase6_ocr_metadata.py` rules and produces a fresh patched sidecar
+in ~5 seconds:
+
+```powershell
+python scripts/reclassify_doc_types_sidecar_only.py --preview
+python scripts/reclassify_doc_types_sidecar_only.py --diff
+python scripts/reclassify_doc_types_sidecar_only.py --upload --backup-prev
+Invoke-RestMethod -Uri http://localhost:5000/api/admin/reload-index -Method POST
+```
+
+The `--backup-prev` step preserved the reverted (pre-§5.7-equivalent)
+sidecar as
+`gs://madison-rag-60-rag-raw/manifests/doc_type_index.backup-20260519-134225.json`
+before overwriting with the patched version. Rollback to the reverted
+state, if ever needed, uses that artifact.
+
+After the upload + reload,
+`scripts/probe_full_corpus_verification.py` confirmed 54/54 folders
+pass acceptability rules. 6 intended improvements landed (KALTSAS,
+Pack Out - Jeremy, 916950_Labon, 930262_Tanya Harris, 221 Center
+Street, 9 Hamilton Place). 0 concerning changes, 0 hard-rule
+violations.
+
+The §5.10 close-out batch then ran cleanly. KALTSAS landed at
+`claim_restoration` in `folder_latest_state`; Bob Sheets and Merge
+Form Templates at `unknown`.
+
+#### Tool-quality finding: `reclassify_doc_types_sidecar_only.py --diff`
+
+During the incident triage, `--diff` predicted 8 BQ-tracked folders
+would flip under the regenerated sidecar. The production classifier
+produces flips on only 4 of those 8. `--diff` disagreed with
+production on:
+
+- `4. Bob Sheets - Spreadsheets` — predicted unknown →
+  claim_restoration (production: unknown, because §5.10 admin
+  short-circuit overrides)
+- `Bolen, Barbara -appraisal - Jeremy Wolf` — predicted
+  property_appraisal → claim_restoration (production: unchanged,
+  because folder name lacks claim vocabulary and the appraisal bucket
+  dominates)
+- `Bonilla - appraisal - need to follow up - Bob` — predicted
+  claim_restoration → property_appraisal (production: unchanged,
+  because Rule 1 still fires on the estimate+insurance buckets)
+- `Rawls, Anthony` — predicted claim_restoration → property_appraisal
+  (production: unchanged, same reason)
+
+**Do not trust `--diff` for folder-purpose prediction.** Use
+`scripts/probe_full_corpus_verification.py` instead — it loads the
+live sidecar, mirrors `_classify_folder_purpose` verbatim (including
+the §5.10 admin rule), and produces honest per-folder verdicts.
+
+Fixing `--diff` to match production is a future workstream; for now,
+the documented best practice is: run `--preview` for the doc_type
+flips inventory, run `--diff` only for the bucket transition matrix
+(which it computes correctly), and use the full-corpus probe for
+folder-purpose impact.
+
+#### Watch procedure (lightweight)
+
+A full monitoring system is out of scope. Instead,
+`scripts/check_sidecar_md5.py` (to be created as part of this ship's
+post-write tasks) provides a one-shot read-only check that compares
+the live GCS sidecar's MD5 against an expected value captured at the
+time of the regeneration. Run before any session that depends on
+§5.7 doc_types being active:
+
+```powershell
+python scripts/check_sidecar_md5.py
+```
+
+The expected MD5 lives in `backups/doc_type_index.expected_md5.txt`
+and was captured from the regenerated sidecar on 2026-05-19. If the
+live sidecar's MD5 diverges, the script exits non-zero with the
+observed vs expected values. At that point: re-read this section,
+then decide whether to regenerate via
+`reclassify_doc_types_sidecar_only.py` or to investigate the writer
+path.
+
+The watch is **not scheduled**. It is a manual check before
+classifier-sensitive work.
+
+#### What this incident did NOT cause
+
+- The §5.10 admin/template ship itself was unaffected by the revert.
+  `_ADMIN_NAME_RE` operates on folder names, not doc_types. Bob
+  Sheets and Merge Form Templates classify as `unknown` either way;
+  the §5.10 ship makes the reason explicit.
+- No data loss in BigQuery or JSONL. The reverted sidecar produced
+  one batch of incorrect events (the first §5.10 close-out attempt);
+  those events were superseded by the second close-out batch after
+  the restore. The JSONL retains both batches as forensic history.
+
+#### Future work (deferred)
+
+- Identify the writer that produced the reverted sidecar on
+  2026-05-19 04:37 UTC. Not investigated further at the time — triage
+  chose to restore + watch rather than continue forensic
+  investigation.
+- Fix `reclassify_doc_types_sidecar_only.py --diff` folder-purpose
+  simulation to match production. Low priority; the workaround (use
+  `probe_full_corpus_verification.py`) is sufficient.
+
+---
+
+### 5.12 OPERATIONS.md and project commit hygiene (2026-05-19)
+
+**Status**: operational rule, effective immediately. Adopted in
+response to the §5.6 documentation loss.
+
+#### What happened
+
+The §5.6 stub in this revision documents the loss of §5.6–§5.9
+prose. Root cause: `OPERATIONS.md` was edited across multiple
+sessions between 2026-05-15 and 2026-05-19 but never `git commit`ed.
+When a `Filesystem:edit_file` corruption required `git checkout
+docs/OPERATIONS.md` to recover, the checkout reverted to the last
+committed version (2026-05-14), discarding all four sections of
+intermediate prose along with the corruption.
+
+The same `git status` check that surfaced the OPERATIONS.md problem
+also revealed that the broader project state has the same pattern:
+
+- The §5.7 5A/5B/5C edits to `Phase5_oneDrive/phase6_ocr_metadata.py`
+  are in the working tree but not committed.
+- The §5.10 edits to `scripts/job_intelligence.py` are in the working
+  tree but not committed.
+- ~28 untracked files include every probe script from §5.7 through
+  §5.10, `scripts/reclassify_doc_types_sidecar_only.py`,
+  `infra/bigquery/views.sql`, `scripts/Invoke-BqLoader.ps1`,
+  `docs/VALIDATION_PACK.md`, the entire `backups/` directory, and
+  the `docs/admin_rule_close_out_folders.txt` close-out input file.
+
+If a `git checkout` had touched any of these files instead of just
+`OPERATIONS.md`, the corresponding code or data would have been lost
+the same way. The project is one accidental `git checkout` or `git
+reset --hard` away from losing two weeks of work.
+
+#### Operational rule (effective 2026-05-19)
+
+Every workstream must commit its artifacts before the workstream is
+considered closed. Specifically:
+
+1. **At session start**, run `git status` and review what's
+   uncommitted from prior sessions. Read the list before doing
+   anything else. If untracked files or unstaged changes from prior
+   work are present, they should either be committed or the operator
+   should confirm they're intentionally in-flight before the new
+   session adds more uncommitted state.
+
+2. **At workstream close**, before claiming the workstream is
+   complete:
+   - Run `git status` and confirm the expected files are listed as
+     modified or untracked.
+   - Run `git diff` on modified files and visually confirm the diff
+     matches what the workstream intended.
+   - `git add` the affected files (code edits, probe scripts, docs,
+     SQL, infra files).
+   - `git commit` with a message that references the OPERATIONS.md
+     section number (e.g. "§5.10 admin/template folder detection
+     ship"). One commit per workstream is fine; multiple are fine
+     too.
+   - Optionally `git push` if the project's remote-tracking policy
+     calls for it.
+
+3. **For documentation specifically**: `OPERATIONS.md`, validation
+   pack docs, and any other narrative documentation must be
+   committed as part of the same workstream that produced them. Do
+   not leave docs as uncommitted working-tree edits across sessions.
+
+4. **If a corruption or accidental revert happens**: prefer paths
+   that reconstruct from durable artifacts (code, probes, BigQuery,
+   JSONL, sidecar) over paths that reconstruct from session memory.
+   The 2026-05-19 incident showed that session-memory reconstruction
+   risks recording inaccurate detail as authoritative.
+
+#### Backfill scope (deferred)
+
+This revision adds §5.10, §5.11, §5.12 and the §5.6 stub. It does
+NOT backfill §5.6, §5.7, §5.8, or §5.9 from session memory. When a
+future session has bandwidth, those sections can be re-authored from
+the durable artifacts listed in the §5.6 stub. The artifacts
+themselves are the authoritative record; the prose is a convenience
+on top of them.
 
 ---
 
