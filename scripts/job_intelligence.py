@@ -458,6 +458,46 @@ _CLAIM_SUPPORTING_BUCKETS = {
     "insurance", "estimate", "photos",   # also covered by the strict rule
 }
 
+# Admin/template/reference folder name signal. When this fires on a
+# folder name, _classify_folder_purpose short-circuits to "unknown"
+# BEFORE the strict-claim / claim-by-name / property rules. Rationale:
+# folders like "4. Bob Sheets - Spreadsheets" and "Merge Form Templates"
+# are admin aggregators (operator's reference docs, blank forms,
+# templates) that incidentally contain claim-flavored files (e.g. a
+# generic "claim checklist.pdf") and were being misclassified as
+# claim_restoration. The rule operates on folder name only, deliberately:
+# inventory contents are unreliable for distinguishing real work from
+# templates. See OPERATIONS.md §5.7 caveat (a) and §5.10 (this ship).
+#
+# Surface (deliberately narrow):
+#   1. (templates?|forms?|boilerplate|reference)\s*$ -- folder name ENDS
+#      with the admin keyword. Catches "Merge Form Templates", hypothetical
+#      "Closing Forms", "Madison Boilerplate". Trailing anchor prevents
+#      firing on "Reference Documents for Smith".
+#   2. \bbob[\s_]+sheets?\b -- operator's admin compound. Compound match
+#      prevents firing on a customer named "Bob" or street "Sheets".
+#   3. \bmerge[\s_]+form\b -- template-aggregator compound.
+#   4. ^\s*\d{4}\s+payroll\b -- anchored year+payroll, e.g. "2020 Payroll".
+#      Bare "\bpayroll\b" was rejected; a customer at "Payroll Lane" or
+#      a payroll-office claim would over-fire.
+#
+# Rejected from this surface:
+#   - ^\s*\d+\.\s numeric prefix (false-positives "1. Bathroom Remodel -
+#     Bolen", a real customer work-unit folder)
+#   - standalone \bsheets?\b, \bmerge\b, \bpayroll\b (over-broad)
+#   - broad \b(documents?|docs?|logs?)\b patterns
+#
+# Validated by scripts/probe_classifier_admin_folder.py: 7/7 pass
+# criteria, exactly 2 expected flips (Bob Sheets, Merge Form Templates),
+# no canonical claim/property folder regressions.
+_ADMIN_NAME_RE = re.compile(
+    r"(?:templates?|forms?|boilerplate|reference)\s*$"
+    r"|\bbob[\s_]+sheets?\b"
+    r"|\bmerge[\s_]+form\b"
+    r"|^\s*\d{4}\s+payroll\b",
+    re.IGNORECASE,
+)
+
 # ─── structured_summary schema contract ───────────────────────────────────
 # The structured_summary object attached to every folder-aware response is
 # the source of truth for future reporting/analytics/persistence. Treat its
@@ -2605,6 +2645,16 @@ class JobIntelligence:
         insurance bucket). See corpus audit; ~67 claim_restoration folders
         existed in the inventory but zero records were classified as such.
         """
+        # Admin/template/reference short-circuit. Folder names matching
+        # _ADMIN_NAME_RE are aggregators (Bob's reference sheets, blank
+        # forms, payroll archives) -- they should not be treated as
+        # work-unit folders regardless of incidental file content. Short-
+        # circuits to "unknown" rather than any concrete purpose, per
+        # §5.8's lesson that flipping from one wrong purpose to another
+        # breaks neighbors. See OPERATIONS.md §5.10.
+        if folder_name and _ADMIN_NAME_RE.search(folder_name):
+            return "unknown"
+
         present_buckets = {b for b, items in inventory.items() if items}
         has_strict_claim = bool(present_buckets & _CLAIM_RESTORATION_BUCKETS)
         has_property     = bool(present_buckets & _PROPERTY_APPRAISAL_BUCKETS)
@@ -2755,8 +2805,10 @@ class JobIntelligence:
 
         The chat answer is intentionally NOT a reporting view. It shows:
           - one short paragraph (Summary)
-          - up to 5-8 key facts as a clean bulleted list, no inline
-            filename citations, no confidence chips
+          - up to 5-8 key facts as a clean bulleted list, each
+            annotated with up to 2 source filenames in italics. Facts
+            with no source are tagged '(unsourced - review)' so the
+            operator can see when grounding is missing.
           - the deterministic Open Items checklist, BUT only when the
             folder's purpose makes that checklist meaningful. A property/
             appraisal folder doesn't need "Insurance / claim document:
@@ -2783,10 +2835,23 @@ class JobIntelligence:
             )
         lines = ["## Summary", overview, ""]
 
-        # ---- Key Facts (top 5-8, no inline sources) --------------------
+        # ---- Key Facts (top 5-8, with inline source filenames) --------
         # Hard cap at 8 so the chat answer stays scannable. Reporting
         # consumers can read the full list from structured.key_facts.
+        #
+        # Each rendered fact is annotated with up to SOURCE_CAP source
+        # filenames pulled from kf['sources'] (existing schema field,
+        # populated by Gemini during normalization in
+        # _normalize_structured_summary). Facts with no source are
+        # tagged '(unsourced - review)' so the operator can see when
+        # grounding is missing -- this is Search/Response Relevance v1
+        # Step 1 (visible source grounding).
+        #
+        # The sources list is already a list of basenames per the
+        # JSONL corpus (verified 2026-05-19); no URI/path stripping
+        # is needed here.
         KEY_FACT_CAP = 8
+        SOURCE_CAP = 2
         key_facts = structured.get("key_facts") or []
         if key_facts:
             lines.append("## Key Facts")
@@ -2794,12 +2859,24 @@ class JobIntelligence:
                 # Tolerate slightly off shapes: missing label, value, etc.
                 label = (kf.get("label") or "").strip()
                 value = (kf.get("value") or "").strip()
+                sources = kf.get("sources") or []
+                # Build the source annotation. Tolerate non-string
+                # entries by coercing to str and stripping; drop blanks.
+                shown_sources = [
+                    str(s).strip() for s in sources[:SOURCE_CAP]
+                    if s and str(s).strip()
+                ]
+                if shown_sources:
+                    src_text = ", ".join(shown_sources)
+                    annotation = f" *(sources: {src_text})*"
+                else:
+                    annotation = " *(unsourced - review)*"
                 if label and value:
-                    lines.append(f"- **{label}:** {value}")
+                    lines.append(f"- **{label}:** {value}{annotation}")
                 elif value:
-                    lines.append(f"- {value}")
+                    lines.append(f"- {value}{annotation}")
                 elif label:
-                    lines.append(f"- {label}")
+                    lines.append(f"- {label}{annotation}")
             lines.append("")
 
         # ---- Open Items (deterministic checklist) ----------------------
