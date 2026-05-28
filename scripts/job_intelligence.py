@@ -801,9 +801,30 @@ RULES:
 3. If search results are empty or irrelevant, say so clearly
 4. Highlight key numbers, dates, and names
 5. Keep responses under 250 words unless asked for more detail
-6. When unsure, acknowledge it - don't make up information"""
+6. When unsure, acknowledge it - don't make up information
+
+TOOL USE — search_documents (added 2026-05-27):
+When the user names a SPECIFIC person or property, call search_documents with the
+person_name or address filter populated. This dramatically reduces contamination.
+  - 'tell me about Barbara Wilkins' → search_documents(query='', person_name='Wilkins, Barbara')
+  - 'what's open on Pampinella' → search_documents(query='open items', person_name='Pampinella, Giacomo')
+  - 'closing docs for 38 Yacht Club' → search_documents(query='closing', address='38 yacht club road')
+Flip names to 'Last, First' format and lowercase addresses with spelled-out
+street types ('road' not 'rd'). Skip filters for generic questions like
+'what permits do we have'."""
 
 def _load_creds():
+    # Ask the canonical env loader where the SA key lives. Falls through
+    # to the legacy in-repo candidates so this still works on older checkouts
+    # that haven't moved the .env outside the repo yet.
+    try:
+        from core.env_loader import discover_env
+        _env_path, _sa_key = discover_env()
+        if _sa_key and _sa_key.exists():
+            return service_account.Credentials.from_service_account_file(
+                str(_sa_key), scopes=["https://www.googleapis.com/auth/cloud-platform"])
+    except Exception:
+        pass
     for key in [
         Path(__file__).resolve().parent.parent / "service-account.json",
         Path(__file__).resolve().parent / "service-account.json",
@@ -975,7 +996,13 @@ class JobIntelligence:
 
     @staticmethod
     def _build_tools():
-        """Declare get_document_by_name as a Gemini tool."""
+        """Declare get_document_by_name and search_documents as Gemini tools.
+
+        search_documents added 2026-05-27: lets Gemini run a filtered Vertex
+        query when the user names a specific person or address. Dramatically
+        improves precision -- 'Wilkins, Barbara' without filter returns ~50
+        contaminated results, with filter returns ~4 clean ones.
+        """
         get_doc_tool = genai.protos.FunctionDeclaration(
             name="get_document_by_name",
             description=(
@@ -1004,7 +1031,63 @@ class JobIntelligence:
                 required=["document_name"],
             ),
         )
-        return genai.protos.Tool(function_declarations=[get_doc_tool])
+
+        search_tool = genai.protos.FunctionDeclaration(
+            name="search_documents",
+            description=(
+                "Run a filtered semantic search across the indexed document corpus. "
+                "Use this when the user names a specific PERSON or ADDRESS and you want "
+                "results scoped to that matter only. Returns short snippets from up to "
+                "10 matching documents.\n\n"
+                "WHEN TO USE:\n"
+                "  - User mentions a person by name ('Barbara Wilkins', 'the Wilkins claim', "
+                "'what do we have on Pampinella') → pass person_name in 'Last, First' format\n"
+                "  - User mentions a street address ('38 Yacht Club', '15 Northridge Drive') "
+                "→ pass address in lowercase with street type spelled out\n"
+                "  - DO NOT use for generic queries ('what permits do we have', "
+                "'summarize the claims') — those should answer from the excerpts already "
+                "provided in the prompt.\n\n"
+                "Filter format matters — our index stores names as 'Wilkins, Barbara' "
+                "(last comma first), and addresses as '38 yacht club road' (lowercase, "
+                "spelled out). If the user types 'Barbara Wilkins', flip it to 'Wilkins, "
+                "Barbara' before passing. If they type '38 Yacht Club Rd', normalize to "
+                "'38 yacht club road'.\n\n"
+                "If the filter returns nothing, the system automatically retries without "
+                "the filter — don't call the tool twice."
+            ),
+            parameters=genai.protos.Schema(
+                type=genai.protos.Type.OBJECT,
+                properties={
+                    "query": genai.protos.Schema(
+                        type=genai.protos.Type.STRING,
+                        description=(
+                            "The search query — a few keywords describing what to find "
+                            "about the person/property. e.g. 'closing documents', "
+                            "'appraisal value', 'open items'."
+                        ),
+                    ),
+                    "person_name": genai.protos.Schema(
+                        type=genai.protos.Type.STRING,
+                        description=(
+                            "Optional. Person name in 'Last, First' format as stored "
+                            "in the index (e.g. 'Wilkins, Barbara', 'Pampinella, Giacomo'). "
+                            "Flip the user's phrasing if needed."
+                        ),
+                    ),
+                    "address": genai.protos.Schema(
+                        type=genai.protos.Type.STRING,
+                        description=(
+                            "Optional. Street address NORMALIZED to lowercase with street "
+                            "type spelled out (e.g. '38 yacht club road', not '38 Yacht "
+                            "Club Rd'). Strip city/state."
+                        ),
+                    ),
+                },
+                required=["query"],
+            ),
+        )
+
+        return genai.protos.Tool(function_declarations=[get_doc_tool, search_tool])
 
     def _dispatch_tool(self, name: str, args: dict) -> str:
         if name == "get_document_by_name":
@@ -1026,6 +1109,64 @@ class JobIntelligence:
                 )
             body = result.get("text") or "(empty document)"
             return f"get_document_by_name OK — file: {result['title']}\n\n{body}"
+
+        if name == "search_documents":
+            # Filtered Vertex search (Black Knight integration, 2026-05-27).
+            # Filter-with-fallback: try with the filter first; if zero results,
+            # retry without so the user still gets something rather than a flat
+            # "no matches" answer.
+            args_d = args or {}
+            sd_query = (args_d.get("query") or "").strip()
+            sd_person = (args_d.get("person_name") or "").strip()
+            sd_address = (args_d.get("address") or "").strip()
+
+            if not sd_query and not (sd_person or sd_address):
+                return "search_documents error: query was empty and no filter was provided."
+
+            used_filter = bool(sd_person or sd_address)
+            try:
+                sources, total = self._vertex_search(
+                    sd_query,
+                    person_name=sd_person,
+                    address=sd_address,
+                )
+            except Exception as e:
+                return f"search_documents error: {type(e).__name__}: {e}"
+
+            fell_back = False
+            if used_filter and not sources:
+                try:
+                    sources, total = self._vertex_search(sd_query)
+                    fell_back = True
+                except Exception as e:
+                    return (
+                        f"search_documents: filter returned 0 and unfiltered "
+                        f"retry failed: {type(e).__name__}: {e}"
+                    )
+
+            if not sources:
+                return f"search_documents: no matches for query={sd_query!r}."
+
+            # Format compactly for Gemini
+            header = f"search_documents: found {len(sources)} document(s) for query={sd_query!r}"
+            if used_filter and not fell_back:
+                applied = []
+                if sd_person:  applied.append(f"person_name={sd_person!r}")
+                if sd_address: applied.append(f"address={sd_address!r}")
+                header += f" [filter: {', '.join(applied)}]"
+            elif fell_back:
+                header += " [filter returned 0; fell back to unfiltered text search]"
+
+            lines = [header]
+            for i, s in enumerate(sources, 1):
+                title = s.get("title") or s.get("filename") or f"source-{i}"
+                snip  = (s.get("snippet") or "(no preview)").strip()
+                # Trim very long snippets so the model context doesn't bloat
+                if len(snip) > 600:
+                    snip = snip[:600] + "..."
+                lines.append(f"\n[{i}] {title}\n{snip}")
+            return "\n".join(lines)
+
         return f"Unknown tool: {name}"
 
     def _run_tool_loop(self, prompt: str, max_rounds: int = 3) -> str:
@@ -1110,12 +1251,20 @@ class JobIntelligence:
             return None
         return s
 
-    def _vertex_search(self, query: str) -> tuple[List[Dict], int]:
+    def _vertex_search(self, query: str,
+                       person_name: str = "",
+                       address: str = "",
+                       project_id: str = "") -> tuple[List[Dict], int]:
         """
         Vertex AI Search: RETRIEVAL ONLY
         - No LLM summarization (saves quota)
         - Returns raw document snippets
         - Fast and cheap
+
+        Black Knight filter params (person_name / address / project_id) added
+        2026-05-27. When any is provided, build a Vertex filter expression so
+        results scope to that matter only. Empty string = no filter on that
+        field. Filters AND together.
         """
         client = discoveryengine.SearchServiceClient(credentials=self._creds)
 
@@ -1134,20 +1283,34 @@ class JobIntelligence:
             ),
         )
 
+        # Build filter expression from any provided Black Knight fields.
+        filter_clauses = []
+        if person_name:
+            filter_clauses.append(f'person_name: ANY("{person_name}")')
+        if address:
+            filter_clauses.append(f'address: ANY("{address}")')
+        if project_id:
+            filter_clauses.append(f'project_id: ANY("{project_id}")')
+        filter_expr = " AND ".join(filter_clauses)
+
         req = discoveryengine.SearchRequest(
             serving_config=SERVING_CONFIG,
             query=query,
+            filter=filter_expr,
             page_size=10,
             content_search_spec=content_spec,
         )
 
-        print(f"[diag] Vertex search query={query!r} serving_config={SERVING_CONFIG!r}")
+        filter_log = f" filter={filter_expr!r}" if filter_expr else ""
+        print(f"[diag] Vertex search query={query!r}{filter_log} serving_config={SERVING_CONFIG!r}")
 
         # Cache check (module-level, cross-session) — repeated identical
-        # questions skip the Vertex call entirely.
-        cached = _cache_get(query)
+        # questions skip the Vertex call entirely. Cache key includes the
+        # filter so filtered and unfiltered results don't collide.
+        cache_key = f"{query}|{filter_expr}" if filter_expr else query
+        cached = _cache_get(cache_key)
         if cached is not None:
-            print(f"[diag] Result cache HIT for {query!r}")
+            print(f"[diag] Result cache HIT for {cache_key!r}")
             return cached
 
         # Throttle: never exceed 240/min on the search API
@@ -1253,7 +1416,7 @@ class JobIntelligence:
                 })
 
         # Cache the result for the next 5 min so repeated questions skip Vertex
-        _cache_put(query, sources[:10], len(sources))
+        _cache_put(cache_key, sources[:10], len(sources))
 
         return sources[:10], len(sources)
 
@@ -2799,6 +2962,118 @@ class JobIntelligence:
             return m.group(1).strip()
         return s
 
+    # Evidence-flag templates used by _compute_evidence_flag /
+    # _render_compact_summary_markdown. Render-time only; not
+    # persisted to JSONL or BigQuery (Step 4: visible evidence flag).
+    # Logic mirrors scripts/probe_extraction_depth_audit_v2.ps1 -- keep
+    # them in sync if the rule cascade ever changes.
+    _EVIDENCE_FLAG_RENDERINGS = {
+        "healthy":        "Evidence: healthy \u2014 {kf} key facts sourced from {src} file{src_s}.",
+        "low-evidence":   "Evidence: low-evidence \u2014 {kf} key facts extracted from {total} file{total_s}; OCR or manual review may be needed.",
+        "skeleton":       "Evidence: skeleton \u2014 folder has too few files to judge ({total} total).",
+        "template/admin": "Evidence: template/admin \u2014 facts appear to come from reusable forms or templates, not a single job folder.",
+        "mixed/admin":    "Evidence: mixed/admin \u2014 facts are drawn from multiple customer/job-specific files in an admin-style folder.",
+        "partial":        "Evidence: partial \u2014 facts present but evidence is sparse; review recommended.",
+    }
+
+    _EVIDENCE_EMPTY_PHRASES = (
+        "scanned",
+        "no extractable text",
+        "no descriptive text",
+        "no readable text",
+        "text extraction not currently supported",
+        "no narrative summary",
+        "image-only",
+    )
+
+    # Tight template/forms/boilerplate folder-name pattern -- narrower
+    # than _ADMIN_NAME_RE on purpose. Aggregators like Bob Sheets do
+    # NOT match and correctly fall through to mixed/admin.
+    _EVIDENCE_TEMPLATE_NAME_RE = re.compile(
+        r"templates?\s*$|\bforms?\s*$|\bboilerplate\s*$",
+        re.IGNORECASE,
+    )
+
+    _EVIDENCE_TEMPLATE_EXTS = (".docx", ".xlsx", ".dotx", ".dotm")
+
+    @staticmethod
+    def _compute_evidence_flag(structured: Dict) -> str:
+        """Return one of: healthy, mixed/admin, skeleton, template/admin,
+        low-evidence, partial. Pure function of the structured_summary
+        dict; no I/O, no Gemini calls, no schema dependencies beyond
+        what is already in structured_summary v1.1.
+
+        Mirrors the rule cascade in
+        scripts/probe_extraction_depth_audit_v2.ps1 so chat output and
+        the operator-facing audit agree on every folder. If either
+        diverges, update both.
+        """
+        purpose       = structured.get("folder_purpose") or "unknown"
+        folder_name   = structured.get("folder_name") or ""
+        key_facts     = structured.get("key_facts") or []
+        inventory     = structured.get("document_inventory") or {}
+        overview_text = (structured.get("overview") or "").lower()
+
+        # Flatten inventory across buckets (dict<bucket, list<item>>).
+        all_files = []
+        if isinstance(inventory, dict):
+            for items in inventory.values():
+                if isinstance(items, list):
+                    all_files.extend(items)
+
+        total_files      = len(all_files)
+        marker_files     = sum(1 for f in all_files if isinstance(f, dict) and f.get("is_marker"))
+        non_marker_files = max(total_files - marker_files, 0)
+
+        kf_count = len(key_facts)
+        sources = set()
+        for fact in key_facts:
+            if not isinstance(fact, dict):
+                continue
+            for s in (fact.get("sources") or []):
+                s_str = str(s).strip()
+                if s_str:
+                    sources.add(s_str)
+        distinct_sources = len(sources)
+
+        overview_empty_hit = any(
+            phrase in overview_text
+            for phrase in JobIntelligence._EVIDENCE_EMPTY_PHRASES
+        )
+
+        folder_looks_template = bool(
+            JobIntelligence._EVIDENCE_TEMPLATE_NAME_RE.search(folder_name)
+        )
+
+        docx_count = sum(
+            1 for s in sources
+            if s.lower().endswith(JobIntelligence._EVIDENCE_TEMPLATE_EXTS)
+        )
+        docx_pct = (100.0 * docx_count / distinct_sources) if distinct_sources else 0.0
+        is_marker_only = (total_files > 0) and (marker_files == total_files)
+
+        # Rule cascade -- first match wins. Keep ordering identical to
+        # the audit probe.
+        if total_files >= 5 and (kf_count <= 1 or overview_empty_hit):
+            return "low-evidence"
+        if total_files <= 3 or is_marker_only or (total_files <= 4 and non_marker_files <= 2):
+            return "skeleton"
+        if purpose == "unknown" and (
+            folder_looks_template
+            or (docx_pct >= 50.0 and distinct_sources >= 3)
+        ):
+            return "template/admin"
+        if purpose == "unknown" and kf_count >= 2:
+            return "mixed/admin"
+        if (
+            purpose in ("claim_restoration", "property_appraisal")
+            and kf_count >= 3
+            and distinct_sources >= 1
+            and not overview_empty_hit
+        ):
+            return "healthy"
+        return "partial"
+
     @staticmethod
     def _render_compact_summary_markdown(structured: Dict) -> str:
         """Render the structured_summary object as a compact chat Markdown view.
@@ -2834,6 +3109,55 @@ class JobIntelligence:
                 f"No narrative summary was generated."
             )
         lines = ["## Summary", overview, ""]
+
+        # ---- Evidence flag line ----------------------------------------
+        # One italicized line directly under the summary paragraph.
+        # Computed at render time from structured_summary fields; not
+        # persisted. Operators see the flag on every folder_summary
+        # answer. Logic lives in _compute_evidence_flag.
+        #
+        # This is Search/Response Relevance v1 Step 4: visible evidence
+        # flag. Step 1 made sources visible; Step 2 made the source
+        # filenames trustworthy; Step 3 audited where evidence was
+        # thin; Step 4 surfaces that evidence-density signal directly
+        # in chat.
+        try:
+            ev_flag = JobIntelligence._compute_evidence_flag(structured)
+            template = JobIntelligence._EVIDENCE_FLAG_RENDERINGS.get(
+                ev_flag,
+                JobIntelligence._EVIDENCE_FLAG_RENDERINGS["partial"],
+            )
+            # Compute the numeric placeholders the templates need.
+            kf_n = len(structured.get("key_facts") or [])
+            src_set = set()
+            for _fact in (structured.get("key_facts") or []):
+                if not isinstance(_fact, dict):
+                    continue
+                for _s in (_fact.get("sources") or []):
+                    _s_str = str(_s).strip()
+                    if _s_str:
+                        src_set.add(_s_str)
+            src_n = len(src_set)
+            total_n = 0
+            _inv = structured.get("document_inventory") or {}
+            if isinstance(_inv, dict):
+                for _items in _inv.values():
+                    if isinstance(_items, list):
+                        total_n += len(_items)
+            ev_line = template.format(
+                kf=kf_n,
+                src=src_n,
+                src_s="" if src_n == 1 else "s",
+                total=total_n,
+                total_s="" if total_n == 1 else "s",
+            )
+            lines.append(f"_{ev_line}_")
+            lines.append("")
+        except Exception as _ev_err:
+            # Renderer must never break the chat. If the flag
+            # computation fails for any reason, drop the line
+            # silently rather than raise.
+            print(f"[render] evidence flag computation failed: {_ev_err}")
 
         # ---- Key Facts (top 5-8, with inline source filenames) --------
         # Hard cap at 8 so the chat answer stays scannable. Reporting
@@ -3227,7 +3551,7 @@ class JobIntelligence:
         # are NOT requested from Gemini -- those are computed in Python
         # below from the dossier itself so they stay deterministic.
         dossier_lines: List[str] = []
-        for i, f in enumerate(files, 1):
+        for f in files:
             # Marker files surface honestly in the prompt so Gemini doesn't
             # speculate. The note explicitly says the file exists but its
             # text isn't readable, which guides the model toward a brief
@@ -3249,8 +3573,7 @@ class JobIntelligence:
                 text_note = "Extracted text: (none available)"
                 snippet_render = "(no extracted text available)"
             dossier_lines.append(
-                f"[FILE {i}]\n"
-                f"Filename: {f['name']}\n"
+                f"[FILE: {f['name']}]\n"
                 f"Bucket: {f['bucket']}\n"
                 f"Doc type (raw): {f['doc_type']}\n"
                 f"Subfolder: {f['subfolder'] or '(top level)'}\n"
@@ -3319,7 +3642,10 @@ class JobIntelligence:
                 f"appraisals). NOT a generic checklist. Empty list if nothing of note.\n\n"
                 f"RULES:\n"
                 f"- Use ONLY information from the dossier above. No outside knowledge.\n"
-                f"- Cite filenames in `sources` for every fact/event.\n"
+                f"- Cite filenames in `sources` for every fact/event. Use the EXACT "
+                f"filename from the [FILE: filename.pdf] header line -- never a "
+                f"positional reference like 'FILE 5', a numeric label, or a paraphrase. "
+                f"`sources` is a list of one or more filename strings.\n"
                 f"- When unsure, OMIT the entry rather than guess.\n"
                 f"- Reply with JSON ONLY -- no prose, no Markdown headers, no fences.\n"
             )
@@ -3524,13 +3850,21 @@ class JobIntelligence:
                 # (which produces "the document excerpts are empty..."
                 # nonsense answers).
                 if not detected_folder and session.job_context:
-                    contextual_query = f"{session.job_context} {query}"
-                    detected_folder = idx.detect_property_in_query(contextual_query)
-                    if detected_folder:
+                    _direct_hits = idx.find(query, top_n=1)
+                    if _direct_hits and _direct_hits[0]["score"] >= 100:
                         print(
-                            f"[Phase1] folder inherited from session context: "
-                            f"{detected_folder!r} (via job_context={session.job_context!r})"
+                            "[Phase1] skipping job_context inheritance: direct "
+                            "filename match %r (score=%.1f)"
+                            % (_direct_hits[0]["name"], _direct_hits[0]["score"])
                         )
+                    else:
+                        contextual_query = f"{session.job_context} {query}"
+                        detected_folder = idx.detect_property_in_query(contextual_query)
+                        if detected_folder:
+                            print(
+                                f"[Phase1] folder inherited from session context: "
+                                f"{detected_folder!r} (via job_context={session.job_context!r})"
+                            )
             except Exception as fe:
                 print(f"[Phase1] folder detection error: {fe}")
                 detected_folder = None

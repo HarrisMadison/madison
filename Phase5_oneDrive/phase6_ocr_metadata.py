@@ -24,6 +24,35 @@ import os
 import logging
 from pathlib import Path
 
+# Black Knight: project_id / address extractor. Lives in this same
+# Phase5_oneDrive package. Tries three import strategies in order:
+#   1. Bare import (works when Phase5_oneDrive/ is on sys.path -- e.g.
+#      when onedrive_sync.py is run as __main__ from inside that dir)
+#   2. Package import (works when phase5 is imported as a submodule)
+#   3. Explicit sys.path injection from this file's location (catches
+#      any other invocation pattern -- scheduler, REPL, test runners)
+# If all three fail, sync still runs (just without project_id enrichment).
+extract_project = None
+_BK_IMPORT_ERROR = ""
+try:
+    from black_knight_extractor import extract_project  # type: ignore
+except Exception as _bk_e1:
+    try:
+        from Phase5_oneDrive.black_knight_extractor import extract_project  # type: ignore
+    except Exception as _bk_e2:
+        try:
+            import sys as _sys
+            from pathlib import Path as _Path_for_bk
+            _here = _Path_for_bk(__file__).resolve().parent
+            if str(_here) not in _sys.path:
+                _sys.path.insert(0, str(_here))
+            from black_knight_extractor import extract_project  # type: ignore
+        except Exception as _bk_e3:
+            extract_project = None
+            _BK_IMPORT_ERROR = (
+                f"bare: {_bk_e1!r}; package: {_bk_e2!r}; sys.path-injected: {_bk_e3!r}"
+            )
+
 log = logging.getLogger("onedrive_sync.phase6")
 
 # ── Document type classifier ──────────────────────────────────────────────────
@@ -122,14 +151,28 @@ _DOC_TYPE_RULES: list[tuple[str, str]] = [
     (r"loan.?approv|lender",                     "loan_document"),
     (r"orion",                                   "loan_document"),
     # Entity docs
-    (r"ein|irs",                                 "tax_document"),
+    (r"(?<![a-z0-9])(?:ein|irs)(?![a-z0-9])",    "tax_document"),
     (r"entity|llc|operating.?agreement",         "entity_document"),
     # Scope / SOW / estimate.
     # Xactimate and Symbility are claim-restoration estimate tools.
     # "estimate" anchored with \b to avoid "estimated" / "estimator".
     (r"xactimate|symbility",                     "estimate"),
     (r"\bsow\b|scope.?of.?work",                 "scope_of_work"),
-    (r"\bestimate\b",                            "estimate"),
+    (r"(?<![a-z0-9])estimate(?![a-z0-9])",       "estimate"),
+    # Madison Ave restoration job-type filename tokens. Filenames in this
+    # corpus follow <CUSTOMER>-<JOB-TYPE>_<DESCRIPTOR>.pdf, where the
+    # job-type token names a specific restoration service. Lookarounds
+    # (not \b) because filenames separate tokens with _ or - and \b
+    # doesn't fire between _ and letters. Target = "estimate" because
+    # each token represents a priced estimate document.
+    (r"(?<![a-z0-9])packout(?![a-z0-9])",          "estimate"),
+    (r"(?<![a-z0-9])packback(?![a-z0-9])",         "estimate"),
+    (r"(?<![a-z0-9])pack[\s_-]+out(?![a-z0-9])",   "estimate"),
+    (r"(?<![a-z0-9])pack[\s_-]+back(?![a-z0-9])",  "estimate"),
+    (r"(?<![a-z0-9])concln(?![a-z0-9])",           "estimate"),
+    (r"(?<![a-z0-9])strcleaning(?![a-z0-9])",      "estimate"),
+    (r"(?<![a-z0-9])strcln(?![a-z0-9])",           "estimate"),
+    (r"(?<![a-z0-9])reb[\s_-]*revise(?![a-z0-9])", "estimate"),
     # Enrollment / producer
     (r"enrollment|producer",                     "insurance_document"),
     # Photos.
@@ -240,6 +283,13 @@ def enrich_metadata(blob_name: str, base_struct: dict) -> dict:
     Add structured metadata fields to a manifest document record.
     These fields are stored in jsonData and indexed by Vertex so Bob
     can filter by property, doc type, or date without full-text search.
+
+    2026-05-25: Now also adds Black Knight project correlation fields
+    (project_id, address, project_kind, person_name, project_year,
+    project_status, encircle_job_id) when the path matches one of the
+    8 known folder patterns. Path that doesn't match any pattern gets
+    project_id=None, which is the correct signal for admin/template/personal
+    files.
     """
     filename = blob_name.split("/")[-1]
     property_name = _extract_property(blob_name)
@@ -256,6 +306,39 @@ def enrich_metadata(blob_name: str, base_struct: dict) -> dict:
     title = enriched.get("title", filename)
     if re.match(r"^\d{17,}", Path(title).stem):
         enriched["title"] = f"{property_name} — {doc_type.replace('_', ' ').title()}"
+
+    # ── Black Knight: project correlation enrichment ──────────────────────
+    # Adds project_id and related fields. Wrapped in try/except so a bug
+    # in the extractor can't crash the sync -- worst case, project_id is
+    # absent and Vertex behaves as before.
+    if extract_project is not None:
+        try:
+            pi = extract_project(blob_name)
+            if pi.project_id:
+                enriched["project_id"] = pi.project_id
+            if pi.address:
+                enriched["address"] = pi.address
+            if pi.project_kind:
+                enriched["project_kind"] = pi.project_kind
+            if pi.person_name:
+                enriched["person_name"] = pi.person_name
+            if pi.project_year:
+                enriched["project_year"] = pi.project_year
+            if pi.project_status:
+                enriched["project_status"] = pi.project_status
+            if pi.encircle_job_id:
+                enriched["encircle_job_id"] = pi.encircle_job_id
+            log.debug(
+                f"  Black Knight: {pi.rule_matched} -> project_id={pi.project_id} "
+                f"address={pi.address} kind={pi.project_kind}"
+            )
+        except Exception as e:  # noqa: BLE001
+            # Never let project_id extraction kill the sync.
+            log.warning(f"  Black Knight extractor error on {blob_name}: {e!r}")
+    else:
+        # Only log once per run; the import failed at module load time.
+        if _BK_IMPORT_ERROR:
+            log.warning(f"  Black Knight extractor unavailable: {_BK_IMPORT_ERROR}")
 
     log.debug(f"  Metadata: {property_name} | {doc_type} | {doc_date} <- {filename}")
     return enriched
