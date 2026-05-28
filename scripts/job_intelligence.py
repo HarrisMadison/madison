@@ -657,6 +657,93 @@ _KEY_FACT_FIELD_RES: "List[tuple[str, List]]" = [
     for field, pats in _KEY_FACT_FIELD_PATTERNS
 ]
 
+# ─── 5a placeholder/template denylist ─────────────────────────────────────
+# Patterns that match known template scaffolding leaking into extracted
+# values. When an extracted value matches one of these, _derive_structured_fields
+# refuses the assignment and leaves the field at its empty template -- same
+# semantic as 5c's folder_purpose="unknown" gate, applied at the value
+# level instead of the folder level.
+#
+# Sources documenting each pattern's necessity:
+#   - [[Black Knight/OCR and BigQuery Findings 2026-05-26]] § Class C
+#     ("Docusketch, HI 11111" leaking into Pack Out - Jeremy property_address)
+#   - [[Infrastructure/14 Known Issues & Open Items]] #5a
+#
+# Two tiers:
+#   _GLOBAL_PLACEHOLDER_PATTERNS apply to every field (whitespace-only,
+#     punctuation-only, etc -- never valid for any of the 9 value fields).
+#   _FIELD_PLACEHOLDER_PATTERNS apply only to specific fields (Docusketch
+#     in an address; "1930" as a claim_number).
+#
+# Patterns are documented per-line so additions are easy to audit. Add new
+# patterns ONLY when corroborated by smoke-test evidence; over-aggressive
+# denylisting will null out real values.
+_GLOBAL_PLACEHOLDER_PATTERNS: "List[str]" = [
+    r"^\s*$",                           # empty or whitespace-only
+    r"^[\s\-_.,;:|/\\]+$",               # punctuation-only
+    r"^n/?a$",                          # "N/A", "NA", "n/a"
+    r"^none$",                          # literal "none"
+    r"^null$",                          # literal "null"
+    r"^(?:unknown|tbd|tba|pending)$",   # placeholder words
+]
+
+_FIELD_PLACEHOLDER_PATTERNS: "Dict[str, List[str]]" = {
+    "property_address": [
+        r"\bdocusketch\b",              # Docusketch template-tool placeholder
+        r"\b\d{1,5}\s+11111\b",         # "... NY 11111", "... HI 11111" (any state, zip 11111)
+        r",\s*[A-Z]{2}\s+11111\b",      # alt form: "<city>, HI 11111"
+        r"^.{81,}$",                    # over 80 chars -- template scaffolding tends to be verbose
+    ],
+    "claim_number": [
+        r"^1930$",                      # documented misclassification across Labon, Margie Freeman, etc.
+                                        # (see [[14]] #7 and BK findings § Class E)
+    ],
+}
+
+# Compile once at module load. Global patterns flatten into a single list;
+# per-field patterns keep their field association.
+_GLOBAL_PLACEHOLDER_RES: "List" = [
+    re.compile(p, re.IGNORECASE) for p in _GLOBAL_PLACEHOLDER_PATTERNS
+]
+_FIELD_PLACEHOLDER_RES: "Dict[str, List]" = {
+    field: [re.compile(p, re.IGNORECASE) for p in pats]
+    for field, pats in _FIELD_PLACEHOLDER_PATTERNS.items()
+}
+
+
+def _is_placeholder_value(field: str, value) -> bool:
+    """True if `value` looks like template scaffolding for `field`.
+
+    Pure function. Checks the value against:
+      1. Global denylist (whitespace, punctuation-only, N/A, etc.) -- applies to every field.
+      2. Field-specific denylist (Docusketch in an address, "1930" as claim_number, etc.).
+
+    Returns False for None and non-string values (those are handled by the
+    empty-template default elsewhere -- placeholder detection only runs on
+    real string values).
+
+    Examples:
+      _is_placeholder_value("property_address", "Docusketch, HI 11111") -> True
+      _is_placeholder_value("property_address", "15 Sparrow Lane, Huntington, NY 11743") -> False
+      _is_placeholder_value("claim_number", "1930") -> True
+      _is_placeholder_value("claim_number", "SF-2026-117234") -> False
+      _is_placeholder_value("appraised_value", "N/A") -> True
+      _is_placeholder_value("appraised_value", None) -> False
+    """
+    if not isinstance(value, str):
+        return False
+    stripped = value.strip()
+    if not stripped:
+        return True
+    for rx in _GLOBAL_PLACEHOLDER_RES:
+        if rx.search(stripped):
+            return True
+    for rx in _FIELD_PLACEHOLDER_RES.get(field, ()):
+        if rx.search(stripped):
+            return True
+    return False
+
+
 # Complete list of structured_fields keys. Used by tests/validators to
 # verify the contract; the derivation function below produces exactly
 # this set every time, regardless of whether values were extractable.
@@ -2429,10 +2516,26 @@ class JobIntelligence:
                 if field in filled:
                     continue
                 if any(rx.search(label) for rx in regexes):
+                    raw_value = kf.get("value") or None
+                    # 5a denylist: refuse template scaffolding (Docusketch,
+                    # zip 11111, the "1930" claim_number misclassification,
+                    # whitespace/N/A/etc.). When a placeholder is detected,
+                    # leave the field at its empty template AND mark it as
+                    # filled so the next key_fact with the same label
+                    # doesn't get a second chance to leak the same value.
+                    # See [[Infrastructure/14 Known Issues & Open Items]] #5a.
+                    if _is_placeholder_value(field, raw_value):
+                        print(
+                            f"[5a] rejected placeholder for field={field} "
+                            f"value={raw_value!r} label={label!r} "
+                            f"source={(kf.get('sources') or [None])[0]!r}"
+                        )
+                        filled.add(field)
+                        break
                     sources = kf.get("sources") or []
                     src = sources[0] if sources else None
                     out[field] = {
-                        "value":       kf.get("value") or None,
+                        "value":       raw_value,
                         "confidence":  kf.get("confidence"),
                         "source_file": src,
                     }
