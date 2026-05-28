@@ -61,6 +61,26 @@ your primary source of truth. Read it first and answer from it. List the
 document names that appeared, even when they only partially answer the
 question — the user wants to know which files were found.
 
+FILTERING BY PERSON OR ADDRESS (added 2026-05-26):
+The search_documents tool accepts optional person_name and address filters.
+Use them whenever the user's question is about a specific matter:
+
+  - User says 'Barbara Wilkins' or 'Wilkins' → pass person_name='Wilkins, Barbara'
+    (always use 'Last, First' format — our index stores names that way)
+  - User says '38 Yacht Club' or '38 Yacht Club Road'
+    → pass address='38 yacht club road' (lowercase, spelled-out street type)
+  - User says generic question like 'summarize claims status'
+    → do NOT pass a filter
+
+This is the single biggest improvement to answer quality. A query for
+'Barbara Wilkins' without a filter returns 50+ documents about other people
+named Barbara. With person_name='Wilkins, Barbara' it returns only the 4-7
+documents actually about that matter. ALWAYS use the filter when a specific
+person or address is mentioned.
+
+If the filtered search returns nothing, the system automatically falls back
+to unfiltered — you don't need to retry.
+
 You have an OPTIONAL tool: get_document_by_name. Only call it when ALL of
 the following are true:
   - The user explicitly names an exact or near-exact filename, AND
@@ -69,9 +89,6 @@ For general topical questions ('summarize claims status', 'what permits do
 we have'), answer from the excerpts directly — DO NOT call the tool. If
 you call the tool and it returns no match, fall back to the excerpts —
 never say 'no documents were retrieved' when excerpts were provided.
-
-There is also a search_documents tool, but the system already runs a search
-and puts the results in the prompt. You usually do not need to call it again.
 
 Answer rules:
   - Use ONLY the tool results and the excerpts. Do not invent dollar amounts,
@@ -131,12 +148,18 @@ def _extract_uri(doc) -> str:
 
 
 def _vertex_search(cfg: Config, query: str, property_=None, doc_type=None,
-                   category=None) -> list[dict]:
-    """Snippet-only Vertex search. Returns list of source dicts with snippets."""
+                   category=None, person_name=None, address=None,
+                   project_id=None) -> list[dict]:
+    """Snippet-only Vertex search. Returns list of source dicts with snippets.
+
+    Black Knight filter params (person_name, address, project_id) added 2026-05-26.
+    """
     from google.cloud import discoveryengine_v1 as de
 
     client = search_client(cfg)
-    filter_expr = build_filter(property_, doc_type, category)
+    filter_expr = build_filter(property_, doc_type, category,
+                               person_name=person_name, address=address,
+                               project_id=project_id)
 
     content_spec = de.SearchRequest.ContentSearchSpec(
         snippet_spec=de.SearchRequest.ContentSearchSpec.SnippetSpec(
@@ -206,7 +229,14 @@ def _tool_declarations():
             "(DoorLoop folder, OneDrive content, every source Vertex has "
             "ingested). Returns short snippets from relevant documents. Use "
             "this for general questions, comparisons, or when no specific "
-            "filename was mentioned."
+            "filename was mentioned.\n\n"
+            "FILTER PARAMETERS (added 2026-05-26): if the user names a "
+            "specific person, pass person_name to scope the search to that "
+            "matter only. If they name a specific street address, pass "
+            "address. These DRAMATICALLY improve relevance — use them "
+            "whenever the user's question is about a specific matter or "
+            "property. The search will automatically fall back to unfiltered "
+            "text search if the filter returns nothing."
         ),
         parameters=genai.protos.Schema(
             type=genai.protos.Type.OBJECT,
@@ -216,6 +246,30 @@ def _tool_declarations():
                     description=(
                         "The search query. Should be a few keywords or a "
                         "short phrase. Avoid pronouns and stop words."
+                    ),
+                ),
+                "person_name": genai.protos.Schema(
+                    type=genai.protos.Type.STRING,
+                    description=(
+                        "Optional. Person/matter name in 'Last, First' format "
+                        "as stored in our index (e.g. 'Wilkins, Barbara', "
+                        "'Trexler, Amanda'). Extract from the user's question "
+                        "if they name a specific person. Always use 'Last, "
+                        "First' — the index stores names that way. If "
+                        "the user types 'Barbara Wilkins', pass "
+                        "'Wilkins, Barbara'."
+                    ),
+                ),
+                "address": genai.protos.Schema(
+                    type=genai.protos.Type.STRING,
+                    description=(
+                        "Optional. Street address as stored in our index, "
+                        "NORMALIZED to lowercase with street type spelled out "
+                        "(e.g. '38 yacht club road', not '38 Yacht Club Rd'). "
+                        "Strip city/state. Extract from the user's question "
+                        "if they name a specific property by address. "
+                        "Examples: '38 yacht club road', '15 northridge "
+                        "drive', '1185 s strong avenue'."
                     ),
                 ),
             },
@@ -264,10 +318,30 @@ def _dispatch_tool(cfg: Config, name: str, args: dict,
     the UI's source panel reflects everything that informed the answer.
     """
     if name == "search_documents":
-        query = (args or {}).get("query", "").strip()
+        args_d = args or {}
+        query = args_d.get("query", "").strip()
+        person_name = args_d.get("person_name", "").strip() or None
+        address     = args_d.get("address", "").strip() or None
         if not query:
             return "search_documents error: query was empty"
-        hits = _vertex_search(cfg, query, property_=property_, doc_type=doc_type)
+
+        # Filter-with-fallback (Black Knight integration, 2026-05-26):
+        # try the filtered search first; if it returns nothing, retry without
+        # the filter so the user still gets text-based results.
+        used_filter = bool(person_name or address)
+        hits = _vertex_search(
+            cfg, query,
+            property_=property_, doc_type=doc_type,
+            person_name=person_name, address=address,
+        )
+        fell_back = False
+        if used_filter and not hits:
+            hits = _vertex_search(
+                cfg, query,
+                property_=property_, doc_type=doc_type,
+            )
+            fell_back = True
+
         # Merge into accumulated sources, dedupe by title
         seen = {s["title"] for s in accumulated_sources}
         for h in hits:
@@ -277,7 +351,15 @@ def _dispatch_tool(cfg: Config, name: str, args: dict,
         if not hits:
             return f"search_documents: no matches for query={query!r}"
         # Format compactly for Gemini
-        lines = [f"search_documents: found {len(hits)} document(s) for query={query!r}"]
+        header = f"search_documents: found {len(hits)} document(s) for query={query!r}"
+        if used_filter and not fell_back:
+            applied = []
+            if person_name: applied.append(f"person_name={person_name!r}")
+            if address:     applied.append(f"address={address!r}")
+            header += f" [filter: {', '.join(applied)}]"
+        elif fell_back:
+            header += " [filter returned 0; fell back to unfiltered text search]"
+        lines = [header]
         for i, h in enumerate(hits, 1):
             snip = h.get("snippet") or "(no preview)"
             lines.append(f"\n[{i}] {h['title']}\n{snip}")
@@ -501,7 +583,23 @@ def answer(cfg: Config, query: str, property_=None, doc_type=None,
 
     `session` and `model_version` are accepted for backward compatibility but
     ignored (Vertex conversational path was removed earlier to save quota).
+
+    Phase 1 migration gate: if config has `langchain.enabled: true`, route
+    through the LangChain-backed implementation instead. The flag defaults
+    to false so this is opt-in. See [[Infrastructure/17 Implementation
+    Roadmap]] Phase 1 step 2.
     """
+    if cfg.raw.get("langchain", {}).get("enabled", False):
+        # Lazy import so the LangChain stack is not loaded at all when the
+        # flag is off. Keeps startup cost and dependency surface zero for
+        # the legacy path.
+        from vertex.answer_langchain import answer as answer_langchain
+        return answer_langchain(
+            cfg, query,
+            property_=property_, doc_type=doc_type, category=category,
+            session=session, preamble=preamble, model_version=model_version,
+        )
+
     # Template field extraction: keep it simple and fast — no tools.
     if preamble == EXTRACT_PREAMBLE:
         text, sources = _gemini_snippet_only(
