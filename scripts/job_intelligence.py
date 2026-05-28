@@ -1784,8 +1784,14 @@ class JobIntelligence:
             )
             # Use a minimal-config call WITHOUT tools to avoid any tool-loop
             # overhead. Direct generate_content is fastest.
+            # 5b: temperature=0 so the mode classifier picks the same MODE_X
+            # for the same query every time -- routing must be deterministic.
+            # See [[Infrastructure/14 Known Issues & Open Items]] #5b.
             classifier_model = genai.GenerativeModel(model_name=GEMINI_MODEL)
-            resp = classifier_model.generate_content(classifier_prompt)
+            resp = classifier_model.generate_content(
+                classifier_prompt,
+                generation_config=genai.types.GenerationConfig(temperature=0.0),
+            )
             txt = (resp.text or "").strip()
             # Parse "MODE_X|target" -- be lenient about whitespace.
             line = txt.split("\n")[0].strip()
@@ -3770,8 +3776,17 @@ class JobIntelligence:
                 f"- Reply with JSON ONLY -- no prose, no Markdown headers, no fences.\n"
             )
             try:
+                # 5b: temperature=0 so the structured-summary / key_facts
+                # extractor is deterministic across re-runs. Fixes 27 Manor
+                # appraised_value swinging $420K vs $352K vs $420,000 (no "$")
+                # on consecutive runs against the same dossier.
+                # See [[Infrastructure/14 Known Issues & Open Items]] #5b
+                # and [[Black Knight/OCR and BigQuery Findings 2026-05-26]] § Class B.
                 summary_model = genai.GenerativeModel(model_name=GEMINI_MODEL)
-                resp = summary_model.generate_content(prompt)
+                resp = summary_model.generate_content(
+                    prompt,
+                    generation_config=genai.types.GenerationConfig(temperature=0.0),
+                )
                 raw = (resp.text or "").strip()
                 cleaned = self._strip_json_fences(raw)
                 if cleaned:
