@@ -39,6 +39,15 @@ engine:
   search_tier: SEARCH_TIER_ENTERPRISE
   search_add_ons: [SEARCH_ADD_ON_LLM]
 
+# Phase 1 migration toggle. When false (default), chat queries run through the
+# legacy hand-rolled tool loop in vertex/answer.py + scripts/job_intelligence.py.
+# When true, queries route through the new LangChain/LangGraph implementation
+# in vertex/answer_langchain.py (TBD). Flip to true in dev first, watch a week
+# of side-by-side comparison, then flip prod. Removable once cutover is clean.
+# See [[Infrastructure/17 Implementation Roadmap]] Phase 1 step 2.
+langchain:
+  enabled: false
+
 email:
   sender: michael.pepe@gmail.com
   app_password: PASTE_APP_PASSWORD_HERE

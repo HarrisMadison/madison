@@ -41,6 +41,12 @@ engine:
   search_tier: SEARCH_TIER_ENTERPRISE
   search_add_ons: [SEARCH_ADD_ON_LLM]
 
+# Phase 1 migration toggle. Flip to true to route chat queries through the
+# LangChain/LangGraph implementation instead of the legacy hand-rolled loop.
+# Default false until cutover is verified in dev.
+langchain:
+  enabled: false
+
 # Silent email via Gmail SMTP.
 # Setup: https://myaccount.google.com/apppasswords
 email:

@@ -12,3 +12,14 @@ python-dotenv>=1.0.0
 python-docx>=1.1.0
 openpyxl>=3.1.0
 python-pptx>=0.6.23
+
+# LangChain stack (Phase 1 migration) -- orchestration, Gemini, Vertex Search
+# retriever, and graph-based agent loop. Pinned to current major lines so a
+# breaking upstream release can't silently land via `pip install -U`.
+# Note: langchain-google-genai >=4.0 uses the new consolidated `google-genai`
+# SDK (transitive dep), which is the direction we need to migrate to anyway
+# per [[Infrastructure/14 Known Issues & Open Items]] #9.
+langchain>=1.0,<2.0
+langchain-google-genai>=4.0,<5.0
+langchain-google-community>=4.0,<5.0
+langgraph>=1.0,<2.0
