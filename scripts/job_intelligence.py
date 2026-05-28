@@ -2398,6 +2398,23 @@ class JobIntelligence:
                 "source_file": None,
             }
 
+        # ---- 5c gate: skip value/status extraction on admin/template folders
+        # Folders with folder_purpose="unknown" are admin aggregators, blank-
+        # form templates, reference docs, or operator scratch space. They have
+        # no single property, claim, or estimate -- any extracted value comes
+        # from whichever sample file OCR happened to read on a given run
+        # (the "Bob Sheets / Merge Form Templates" contamination class).
+        # See [[Black Knight/OCR and BigQuery Findings 2026-05-26]] § Class D
+        # and [[Infrastructure/14 Known Issues & Open Items]] #5c.
+        #
+        # Returning early preserves the identity fields (folder_name,
+        # folder_purpose) that were populated above, while leaving every
+        # value/status field at the empty {value=None, confidence=None,
+        # source_file=None} template -- which is the correct semantic for
+        # "this folder has no such field to extract."
+        if fp == "unknown":
+            return out
+
         # ---- Value fields from key_facts -------------------------------
         # Walk key_facts once, try each pattern set, first match wins per
         # field. Stops when all value-pattern fields are filled (small
