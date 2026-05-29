@@ -833,7 +833,27 @@ def _persist_structured_summary(obj: Dict) -> None:
 # Windowed limiter: never exceed 240 calls in any rolling 60-second window
 # (240 = 80% of cap, leaves headroom for bursts and other code paths).
 VERTEX_MAX_PER_MINUTE = 200
+VERTEX_MAX_PER_HOUR = int(os.getenv("VERTEX_MAX_PER_HOUR", "250"))
 _vertex_call_times: deque = deque()
+_vertex_hour_started = time.time()
+_vertex_hour_calls = 0
+
+def _record_vertex_search_call():
+    """Per-process hard cap for paid Discovery Engine search calls."""
+    global _vertex_hour_started, _vertex_hour_calls
+    now = time.time()
+    if now - _vertex_hour_started >= 3600:
+        _vertex_hour_started = now
+        _vertex_hour_calls = 0
+    _vertex_hour_calls += 1
+    if _vertex_hour_calls % 50 == 0:
+        print(f"[quota-guard] Discovery searches this process/hour: {_vertex_hour_calls}/{VERTEX_MAX_PER_HOUR}")
+    if _vertex_hour_calls > VERTEX_MAX_PER_HOUR:
+        raise RuntimeError(
+            f"Discovery search hourly safety cap exceeded ({_vertex_hour_calls}/{VERTEX_MAX_PER_HOUR}). "
+            "Set VERTEX_MAX_PER_HOUR higher only after confirming the caller is intentional."
+        )
+
 
 def _throttle_vertex_call():
     """Block until making one more search call would not exceed the cap.
@@ -849,6 +869,53 @@ def _throttle_vertex_call():
             print(f"[throttle] At {len(_vertex_call_times)}/min cap — sleeping {sleep_for:.1f}s")
             time.sleep(sleep_for)
     _vertex_call_times.append(time.time())
+
+
+# ─── Discovery call counter (visibility for cost spikes) ───────────────────
+# Tracks Discovery Engine `search` calls in the current process, bucketed by
+# wall-clock hour. Logs a [diag] line at threshold milestones so a runaway
+# becomes visible in tail -f before the GCP bill catches it.
+#
+# Why bucket by hour: matches the "$X/hour" framing in cost reports and makes
+# the threshold ladder meaningful (humans don't usually drive 50+ unique
+# Discovery calls in one hour of chatting; a process doing so is a signal).
+#
+# Why not a true rolling window: this is a *visibility* tool, not a circuit
+# breaker. The existing _throttle_vertex_call() is the rate limiter; this
+# just surfaces volume.
+#
+# Added 2026-05-28 after the search_documents fanout produced a 17,356-call
+# spike. See [[Infrastructure/14 Known Issues & Open Items]] (forthcoming
+# entry).
+_DISCOVERY_CALL_COUNT = 0
+_DISCOVERY_HOUR_BUCKET: int = 0   # epoch-hour when count was last reset
+_DISCOVERY_THRESHOLDS = (10, 25, 50, 100, 250, 500, 1000, 2500, 5000)
+_DISCOVERY_ALERTED: set = set()   # which thresholds have logged this hour
+
+
+def _record_discovery_call() -> None:
+    """Bump the per-hour Discovery call counter and log at threshold milestones.
+
+    Safe to call on every search regardless of throttling/caching. The hour
+    bucket auto-resets at the top of each wall-clock hour, which is the
+    coarsest useful resolution for spike-spotting.
+    """
+    global _DISCOVERY_CALL_COUNT, _DISCOVERY_HOUR_BUCKET, _DISCOVERY_ALERTED
+    now_hour = int(time.time() // 3600)
+    if now_hour != _DISCOVERY_HOUR_BUCKET:
+        if _DISCOVERY_CALL_COUNT > 0:
+            # Log the count that just finished, before resetting. Useful for
+            # post-hoc reconstruction of hourly totals.
+            print(f"[diag] Discovery calls in previous hour: {_DISCOVERY_CALL_COUNT}")
+        _DISCOVERY_HOUR_BUCKET = now_hour
+        _DISCOVERY_CALL_COUNT = 0
+        _DISCOVERY_ALERTED = set()
+    _DISCOVERY_CALL_COUNT += 1
+    for th in _DISCOVERY_THRESHOLDS:
+        if _DISCOVERY_CALL_COUNT >= th and th not in _DISCOVERY_ALERTED:
+            print(f"[diag] Discovery calls this hour: {_DISCOVERY_CALL_COUNT} (\u2265 {th})")
+            _DISCOVERY_ALERTED.add(th)
+            break
 
 
 # Module-level result cache. Key: normalized query string. Value: (sources,
@@ -891,14 +958,19 @@ RULES:
 6. When unsure, acknowledge it - don't make up information
 
 TOOL USE — search_documents (added 2026-05-27):
-When the user names a SPECIFIC person or property, call search_documents with the
-person_name or address filter populated. This dramatically reduces contamination.
+If you don't already have what you need from the document excerpts in this
+prompt, you MAY call search_documents to scope a Vertex search to a
+specific person or property. Prefer answering from existing excerpts when
+possible — each search_documents call is a paid Discovery Engine query.
+When you DO call it, populate person_name or address whenever the user
+named someone or a property; that single filter dramatically improves
+relevance and answer quality.
   - 'tell me about Barbara Wilkins' → search_documents(query='', person_name='Wilkins, Barbara')
   - 'what's open on Pampinella' → search_documents(query='open items', person_name='Pampinella, Giacomo')
   - 'closing docs for 38 Yacht Club' → search_documents(query='closing', address='38 yacht club road')
 Flip names to 'Last, First' format and lowercase addresses with spelled-out
-street types ('road' not 'rd'). Skip filters for generic questions like
-'what permits do we have'."""
+street types ('road' not 'rd'). Skip the tool entirely for generic questions
+like 'what permits do we have' — the prompt's excerpts already cover those."""
 
 def _load_creds():
     # Ask the canonical env loader where the SA key lives. Falls through
@@ -1054,6 +1126,13 @@ def _followups(query, ctx):
     if ctx: s.append(f"More on {ctx}?")
     return s[:3]
 
+
+
+def _first_page_results(search_response):
+    """Return only the first Search API page; never auto-paginate."""
+    first_page = getattr(search_response, "_response", search_response)
+    return list(getattr(first_page, "results", []) or [])
+
 class JobIntelligence:
     def __init__(self):
         self._creds = _load_creds()
@@ -1199,9 +1278,8 @@ class JobIntelligence:
 
         if name == "search_documents":
             # Filtered Vertex search (Black Knight integration, 2026-05-27).
-            # Filter-with-fallback: try with the filter first; if zero results,
-            # retry without so the user still gets something rather than a flat
-            # "no matches" answer.
+            # Do not retry unfiltered on a filtered miss: that doubles paid
+            # Discovery calls and reintroduces cross-matter contamination.
             args_d = args or {}
             sd_query = (args_d.get("query") or "").strip()
             sd_person = (args_d.get("person_name") or "").strip()
@@ -1221,28 +1299,35 @@ class JobIntelligence:
                 return f"search_documents error: {type(e).__name__}: {e}"
 
             fell_back = False
+            # 2026-05-28: unfiltered-fallback retry removed to cap per-call
+            # Discovery cost. When a person/address filter returns 0, the
+            # right behavior is to tell the model "no matches with that
+            # filter" and let it decide how to follow up (re-ask the user,
+            # try a different filter, or answer from existing excerpts).
+            # The previous behavior silently doubled the Discovery call cost
+            # on every filtered miss. See [[14 Known Issues & Open Items]].
             if used_filter and not sources:
-                try:
-                    sources, total = self._vertex_search(sd_query)
-                    fell_back = True
-                except Exception as e:
-                    return (
-                        f"search_documents: filter returned 0 and unfiltered "
-                        f"retry failed: {type(e).__name__}: {e}"
-                    )
+                applied = []
+                if sd_person:  applied.append(f"person_name={sd_person!r}")
+                if sd_address: applied.append(f"address={sd_address!r}")
+                return (
+                    f"search_documents: filter returned 0 results for "
+                    f"query={sd_query!r} [filter: {', '.join(applied)}]. "
+                    f"Answer from the excerpts already in the prompt, ask "
+                    f"the user to clarify the name/address, or try a "
+                    f"different filter — do NOT retry unfiltered."
+                )
 
             if not sources:
                 return f"search_documents: no matches for query={sd_query!r}."
 
             # Format compactly for Gemini
             header = f"search_documents: found {len(sources)} document(s) for query={sd_query!r}"
-            if used_filter and not fell_back:
+            if used_filter:
                 applied = []
                 if sd_person:  applied.append(f"person_name={sd_person!r}")
                 if sd_address: applied.append(f"address={sd_address!r}")
                 header += f" [filter: {', '.join(applied)}]"
-            elif fell_back:
-                header += " [filter returned 0; fell back to unfiltered text search]"
 
             lines = [header]
             for i, s in enumerate(sources, 1):
@@ -1413,8 +1498,10 @@ class JobIntelligence:
                 time.sleep(backoff)
                 _throttle_vertex_call()
             try:
+                _record_discovery_call()
+                _record_vertex_search_call()
                 response = client.search(req)
-                results = list(response)
+                results = _first_page_results(response)
                 print(f"[diag] Vertex returned {len(results)} raw results (attempt {attempt})")
                 break
             except gapi_exceptions.ResourceExhausted as qe:
